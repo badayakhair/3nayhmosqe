@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تسجيل الدخول — نظام العناية بالمساجد</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="icon">🕌</div>
+      <h1>نظام العناية بالمساجد</h1>
+      <p>الدخول للنظام التشغيلي الداخلي</p>
+    </div>
+
+    <form id="login-form" class="form">
+      <div class="form-row">
+        <label class="form-label">البريد الإلكتروني</label>
+        <input class="input" type="email" name="email" required autocomplete="username" placeholder="admin@masajid.local">
+      </div>
+      <div class="form-row">
+        <label class="form-label">كلمة المرور</label>
+        <input class="input" type="password" name="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" type="submit" id="login-btn" style="justify-content:center">دخول</button>
+    </form>
+
+    <div class="login-hint">
+      الحساب الافتراضي بعد التهيئة: <strong>admin@masajid.local</strong> / <strong>admin123</strong>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // إن كان مسجّلاً بالفعل، انتقل للوحة التحكم
+    if (Auth.isLoggedIn()) location.href = 'dashboard.html';
+
+    document.getElementById('login-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      const fd = new FormData(e.target);
+      btn.disabled = true; btn.textContent = 'جارٍ الدخول…';
+      try {
+        await Auth.login(fd.get('email'), fd.get('password'));
+        location.href = 'dashboard.html';
+      } catch (err) {
+        UI.toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'دخول';
+      }
+    });
+  </script>
+</body>
+</html>
