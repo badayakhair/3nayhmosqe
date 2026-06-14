@@ -8,7 +8,7 @@
  */
 window.APP_CONFIG = {
   // الصق هنا رابط النشر من Apps Script (ينتهي بـ /exec)
-  API_URL: 'https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOYMENT_ID/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyYpDFsUYborwsoE-Y7Yr_GX_GGlH1aGyvTaYAaYXMH6iz3SWYaFycdes5SnbAaUQm5/exec',
 
   APP_NAME: 'نظام العناية بالمساجد',
   ORG_NAME: 'جمعية العناية بالمساجد',
