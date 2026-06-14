@@ -214,18 +214,58 @@ function nowIso_() {
   return new Date().toISOString();
 }
 
-/** تجزئة كلمة المرور باستخدام SHA-256 مع ملح (salt) من خصائص السكربت. */
-function hashPassword_(password) {
-  var salt = PropertiesService.getScriptProperties().getProperty('PWD_SALT') || 'masajid-care-salt';
-  var raw = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    salt + '::' + password,
-    Utilities.Charset.UTF_8
-  );
-  return raw.map(function (b) {
+/** تحويل مصفوفة بايتات إلى نص ست عشري. */
+function bytesToHex_(bytes) {
+  return bytes.map(function (b) {
     var v = (b < 0 ? b + 256 : b).toString(16);
     return v.length === 1 ? '0' + v : v;
   }).join('');
+}
+
+/**
+ * تجزئة كلمة المرور (الصيغة v2): ملح فريد لكل مستخدم + فلفل (pepper) سرّي من خصائص
+ * السكربت (خارج جدول البيانات) + آلاف التكرارات لإبطاء الهجمات بالقوة العمياء.
+ * الصيغة المخزّنة: v2$<iterations>$<salt>$<hashHex>
+ */
+function hashPasswordV2_(password, salt, iterations) {
+  salt = salt || Utilities.getUuid().replace(/-/g, '');
+  iterations = iterations || 4096;
+  var pepper = PropertiesService.getScriptProperties().getProperty('PWD_SALT') || 'masajid-care-salt';
+  var bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256, salt + '::' + pepper + '::' + password, Utilities.Charset.UTF_8);
+  for (var i = 1; i < iterations; i++) {
+    bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes);
+  }
+  return 'v2$' + iterations + '$' + salt + '$' + bytesToHex_(bytes);
+}
+
+/** التجزئة القديمة (v1) — للتحقق من الحسابات المنشأة قبل الترقية فقط. */
+function hashPasswordLegacy_(password) {
+  var salt = PropertiesService.getScriptProperties().getProperty('PWD_SALT') || 'masajid-care-salt';
+  return bytesToHex_(Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256, salt + '::' + password, Utilities.Charset.UTF_8));
+}
+
+/** تجزئة كلمة مرور جديدة (تستخدم الصيغة v2 دائماً). */
+function hashPassword_(password) {
+  return hashPasswordV2_(password);
+}
+
+/** هل التجزئة المخزّنة بالصيغة القديمة (تحتاج ترقية عند الدخول)؟ */
+function isLegacyHash_(stored) {
+  return String(stored || '').indexOf('v2$') !== 0;
+}
+
+/** التحقق من كلمة المرور مقابل التجزئة المخزّنة (يدعم v1 و v2). */
+function verifyPassword_(stored, password) {
+  stored = String(stored || '');
+  if (!stored) return false;
+  if (stored.indexOf('v2$') === 0) {
+    var parts = stored.split('$'); // ['v2', iterations, salt, hash]
+    if (parts.length !== 4) return false;
+    return hashPasswordV2_(password, parts[2], parseInt(parts[1], 10)) === stored;
+  }
+  return hashPasswordLegacy_(password) === stored;
 }
 
 /** تسجيل عملية في سجل التدقيق (AuditLog). */
@@ -287,11 +327,24 @@ function pick_(obj, keys) {
   return out;
 }
 
-/** بناء خريطة معرّف المسجد -> اسمه. */
+/**
+ * بناء خريطة معرّف المسجد -> اسمه، مع تخزينها مؤقتاً في ذاكرة السكربت لتفادي
+ * إعادة قراءة شيت المساجد في كل قائمة (visits/reports/...). تُبطَل عند أي تعديل
+ * على المساجد عبر invalidateMosqueCache_().
+ */
 function mosqueNameMap_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('mosqueNames');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
   var map = {};
   readRows_('Mosques').forEach(function (m) { map[m.ID] = m.Name; });
+  try { cache.put('mosqueNames', JSON.stringify(map), 300); } catch (e) {}
   return map;
+}
+
+/** إبطال ذاكرة أسماء المساجد المؤقتة (تُستدعى بعد أي إضافة/تعديل/حذف مسجد). */
+function invalidateMosqueCache_() {
+  try { CacheService.getScriptCache().remove('mosqueNames'); } catch (e) {}
 }
 
 /** إثراء قائمة عناصر بإضافة MosqueName بناءً على MosqueID. */
@@ -404,19 +457,20 @@ function doPost(e) {
   return dispatch_(e);
 }
 
-/** معالج طلبات GET (فحص الحالة فقط — health check). */
+/**
+ * معالج طلبات GET — فحص الحالة فقط (health check).
+ * كل العمليات الحقيقية تتم عبر POST، فلا تُمرَّر التوكنات في روابط GET (لأنها
+ * تُسجَّل في سجلات الخوادم). هذا يقلّل سطح الهجوم.
+ */
 function doGet(e) {
-  if (e && e.parameter && e.parameter.action) {
-    return dispatch_(e, true);
-  }
   return jsonOutput_({ ok: true, data: { service: 'Masajid Care API', version: APP_VERSION, time: new Date().toISOString() } });
 }
 
 /** المحرّك الرئيسي للتوجيه. */
-function dispatch_(e, isGet) {
+function dispatch_(e) {
   var lock = LockService.getScriptLock();
   try {
-    var body = parseRequest_(e, isGet);
+    var body = parseRequest_(e);
     var action = body.action;
     if (!action) {
       return jsonOutput_({ ok: false, error: { code: 'NO_ACTION', message: 'لم يتم تحديد العملية (action).' } });
@@ -457,15 +511,8 @@ function dispatch_(e, isGet) {
   }
 }
 
-/** قراءة جسم الطلب وتحويله إلى كائن JS. */
-function parseRequest_(e, isGet) {
-  if (isGet) {
-    return {
-      action: e.parameter.action,
-      token: e.parameter.token || '',
-      payload: e.parameter.payload ? JSON.parse(e.parameter.payload) : {}
-    };
-  }
+/** قراءة جسم طلب POST وتحويله إلى كائن JS. */
+function parseRequest_(e) {
   if (!e || !e.postData || !e.postData.contents) {
     return {};
   }
@@ -488,7 +535,6 @@ function jsonOutput_(obj) {
 function handleAuth_login(payload) {
   requireFields_(payload, ['email', 'password']);
   var email = String(payload.email).trim().toLowerCase();
-  var hash = hashPassword_(payload.password);
 
   var users = readRows_('Users');
   var user = null;
@@ -498,7 +544,14 @@ function handleAuth_login(payload) {
 
   if (!user) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
   if (!isTrue_(user.Active)) throw new Error('هذا الحساب موقوف. راجع مدير النظام.');
-  if (String(user.PasswordHash) !== hash) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
+  if (!verifyPassword_(user.PasswordHash, payload.password)) {
+    throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
+  }
+
+  // ترقية تلقائية لتجزئة كلمة المرور إلى الصيغة الأحدث عند الدخول
+  if (isLegacyHash_(user.PasswordHash)) {
+    try { updateRow_('Users', user.__row, { PasswordHash: hashPassword_(payload.password) }); } catch (e) {}
+  }
 
   var token = createSession_(user.ID);
   audit_(user, 'login', 'Auth', user.ID);
@@ -510,9 +563,12 @@ function handleAuth_me(payload, user) {
   return { user: publicUser_(user) };
 }
 
-/** تسجيل الخروج: حذف الجلسة. */
+/** تسجيل الخروج: حذف الجلسة وإبطالها من الذاكرة المؤقتة فوراً. */
 function handleAuth_logout(payload, user) {
-  if (payload && payload.token) deleteSessionByToken_(payload.token);
+  if (payload && payload.token) {
+    deleteSessionByToken_(payload.token);
+    try { CacheService.getScriptCache().remove('sess:' + payload.token); } catch (e) {}
+  }
   return { done: true };
 }
 
@@ -521,7 +577,7 @@ function handleAuth_changePassword(payload, user) {
   requireFields_(payload, ['oldPassword', 'newPassword']);
   var full = findById_('Users', user.ID);
   if (!full) throw new Error('المستخدم غير موجود.');
-  if (String(full.PasswordHash) !== hashPassword_(payload.oldPassword)) {
+  if (!verifyPassword_(full.PasswordHash, payload.oldPassword)) {
     throw new Error('كلمة المرور الحالية غير صحيحة.');
   }
   if (String(payload.newPassword).length < 6) {
@@ -540,22 +596,48 @@ function createSession_(userId) {
   return token;
 }
 
-/** التحقق من توكن. يعيد { ok, user } أو { ok:false }. */
+/**
+ * التحقق من توكن. يعيد { ok, user } أو { ok:false }.
+ *
+ * تحسين الأداء: نتيجة التحقق تُخزَّن في ذاكرة السكربت المؤقتة (CacheService) لمدة
+ * قصيرة، فتُختصر قراءة شيتَي Sessions و Users في معظم الطلبات (وهي أبطأ عملية في
+ * Apps Script). أي تغيير على الدور/الإيقاف ينعكس خلال مدة التخزين كحد أقصى.
+ */
+var SESSION_CACHE_TTL = 120; // ثانية
+
 function validateToken_(token) {
   if (!token) return { ok: false };
+
+  var cache = CacheService.getScriptCache();
+  var ckey = 'sess:' + token;
+  var cached = cache.get(ckey);
+  if (cached) {
+    try {
+      var obj = JSON.parse(cached);
+      if (obj.exp > Date.now()) return { ok: true, user: obj.user };
+    } catch (e) {}
+  }
+
   var sessions = readRows_('Sessions');
   var session = null;
   for (var i = 0; i < sessions.length; i++) {
     if (String(sessions[i].Token) === String(token)) { session = sessions[i]; break; }
   }
   if (!session) return { ok: false };
-  if (new Date(session.ExpiresAt).getTime() < Date.now()) {
+  var exp = new Date(session.ExpiresAt).getTime();
+  if (exp < Date.now()) {
     deleteSessionByToken_(session.Token);
     return { ok: false };
   }
-  var user = findById_('Users', session.UserID);
-  if (!user) return { ok: false };
-  if (!isTrue_(user.Active)) return { ok: false };
+  var full = findById_('Users', session.UserID);
+  if (!full) return { ok: false };
+  if (!isTrue_(full.Active)) return { ok: false };
+
+  // كائن مستخدم مُصغّر (بلا تجزئة كلمة المرور) للاستخدام في الطلب وفي التخزين
+  var user = { ID: full.ID, Name: full.Name, Email: full.Email, Role: full.Role };
+  try {
+    cache.put(ckey, JSON.stringify({ user: user, exp: exp }), SESSION_CACHE_TTL);
+  } catch (e) {}
   return { ok: true, user: user };
 }
 
@@ -693,6 +775,7 @@ function handleMosques_create(payload, user) {
     MapURL: mapUrl
   };
   insertRow_('Mosques', obj);
+  invalidateMosqueCache_();
   audit_(user, 'create', 'Mosques', obj.ID);
   return { item: obj };
 }
@@ -717,6 +800,7 @@ function handleMosques_update(payload, user) {
   if (payload.Lng !== undefined) patch.Lng = payload.Lng;
   patch.UpdatedAt = nowIso_();
   var updated = updateRow_('Mosques', row.__row, patch);
+  invalidateMosqueCache_();
   audit_(user, 'update', 'Mosques', payload.id);
   return { item: updated };
 }
@@ -732,10 +816,12 @@ function resolveMapUrl_(url) {
   var coords = extractCoords_(url);
   if (coords) return coords;
 
-  // رابط مختصر: اتبع سلسلة التحويلات واستخرج الإحداثيات من كل وجهة
+  // رابط مختصر: اتبع سلسلة التحويلات واستخرج الإحداثيات من كل وجهة.
+  // أمان (مكافحة SSRF): لا نجلب إلا مضيفات Google المعروفة فقط.
   try {
     var current = url;
     for (var i = 0; i < 4; i++) {
+      if (!isAllowedMapHost_(current)) break;
       var resp = UrlFetchApp.fetch(current, { followRedirects: false, muteHttpExceptions: true });
       var code = resp.getResponseCode();
       if (code >= 300 && code < 400) {
@@ -754,6 +840,17 @@ function resolveMapUrl_(url) {
     }
   } catch (e) { /* تجاهل أخطاء الشبكة */ }
   return null;
+}
+
+/** السماح فقط بجلب روابط من نطاقات Google (حماية من هجمات SSRF). */
+function isAllowedMapHost_(url) {
+  var m = String(url).match(/^https:\/\/([^\/]+)/i);
+  if (!m) return false;
+  var host = m[1].toLowerCase().split(':')[0];
+  return host === 'goo.gl' || host === 'g.co' ||
+         host === 'maps.app.goo.gl' ||
+         host.slice(-11) === '.google.com' || host === 'google.com' ||
+         host.slice(-7) === '.goo.gl';
 }
 
 /** البحث عن أول زوج إحداثيات (lat,lng) ضمن نص/رابط بصيغ Google Maps الشائعة. */
@@ -777,6 +874,7 @@ function extractCoords_(text) {
 function handleMosques_delete(payload, user) {
   requireFields_(payload, ['id']);
   if (!deleteById_('Mosques', payload.id)) throw new Error('المسجد غير موجود.');
+  invalidateMosqueCache_();
   audit_(user, 'delete', 'Mosques', payload.id);
   return { done: true };
 }

@@ -14,6 +14,8 @@ window.Auth = (function () {
   function clearSession() {
     localStorage.removeItem(APP_CONFIG.STORAGE.TOKEN);
     localStorage.removeItem(APP_CONFIG.STORAGE.USER);
+    // مسح البيانات المخزّنة مؤقتاً حتى لا تتسرب بين المستخدمين/الجلسات
+    if (window.Cache) Cache.clear();
   }
 
   function getUser() {
