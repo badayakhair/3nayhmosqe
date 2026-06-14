@@ -17,7 +17,8 @@ window.APP_CONFIG = {
   // مفاتيح التخزين المحلي
   STORAGE: {
     TOKEN: 'mc_token',
-    USER: 'mc_user'
+    USER: 'mc_user',
+    PERMS: 'mc_perms'
   }
 };
 

@@ -5,7 +5,8 @@
   Layout.render('mosques');
   const page = UI.$('#page');
 
-  const FIELDS = [
+  // الحقول النصية للنموذج (الموقع يُدار عبر منتقي الخريطة التفاعلي بشكل منفصل)
+  const TEXT_FIELDS = [
     { name: 'Name', label: 'اسم المسجد', type: 'text', required: true, full: true },
     { name: 'District', label: 'الحي', type: 'text', required: true },
     { name: 'City', label: 'المدينة', type: 'text', required: true },
@@ -13,16 +14,17 @@
     { name: 'Toilets', label: 'عدد دورات المياه', type: 'number', min: 0 },
     { name: 'ACs', label: 'عدد المكيفات', type: 'number', min: 0 },
     { name: 'Courts', label: 'عدد الساحات', type: 'number', min: 0 },
-    { name: 'MapURL', label: 'رابط موقع Google Maps (الصق رابط الموقع — تُستخرج الإحداثيات تلقائياً)', type: 'text', full: true },
     { name: 'Images', label: 'روابط الصور (مفصولة بفاصلة)', type: 'text', full: true },
     { name: 'Notes', label: 'ملاحظات عامة', type: 'textarea', full: true }
   ];
+
+  const DEFAULT_CENTER = [24.7136, 46.6753]; // الرياض — مركز افتراضي عند غياب الموقع
 
   function header() {
     const h = UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [UI.el('h2', { text: 'سجل المساجد' }), UI.el('div', { class: 'page-subtitle', text: 'إدارة بيانات المساجد الكاملة' })])
     ]);
-    if (!Auth.isReadOnly() && Auth.can(['admin', 'supervisor'])) {
+    if (Auth.cap('mosques.create')) {
       h.appendChild(UI.el('button', { class: 'btn btn-primary', text: '+ إضافة مسجد', onclick: function () { openForm(); } }));
     }
     return h;
@@ -50,8 +52,8 @@
       listWrap.innerHTML = '';
       listWrap.appendChild(Components.table(columns, data.items, {
         onView: viewDetail,
-        onEdit: function (r) { openForm(r); },
-        onDelete: Auth.can(['admin']) ? confirmDelete : null
+        onEdit: Auth.cap('mosques.edit') ? function (r) { openForm(r); } : null,
+        onDelete: Auth.cap('mosques.delete') ? confirmDelete : null
       }));
 
       renderMap(data.items);
@@ -77,7 +79,7 @@
     }
     if (!geo.length) {
       card.appendChild(UI.el('div', { class: 'text-muted',
-        text: 'لا توجد مساجد بإحداثيات بعد. أضِف خط العرض (Lat) وخط الطول (Lng) لمسجد لإظهاره على الخريطة.' }));
+        text: 'لا توجد مساجد بمواقع بعد. عدّل مسجداً وحدّد موقعه من منتقي الخريطة لإظهاره هنا.' }));
       return;
     }
 
@@ -140,27 +142,150 @@
     return /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url);
   }
 
+  /**
+   * منتقي موقع تفاعلي: خريطة بدبوس قابل للسحب + حقل لصق رابط Google Maps.
+   * الإحداثيات المخزّنة هي بالضبط مكان الدبوس الذي يراه المستخدم ويؤكده — وهذا
+   * يحل مشكلة الدقة من جذورها بدل الاعتماد على تحليل روابط غامضة.
+   * يعيد كائناً فيه node (للإدراج) و getState() لقراءة { lat, lng, url }.
+   */
+  function buildLocationPicker(row) {
+    let lat = row && row.Lat !== '' && !isNaN(Number(row.Lat)) ? Number(row.Lat) : null;
+    let lng = row && row.Lng !== '' && !isNaN(Number(row.Lng)) ? Number(row.Lng) : null;
+    let mapUrl = (row && row.MapURL) || '';
+    let pendingShortUrl = ''; // رابط مختصر يحلّه الخادم لاحقاً
+
+    const wrap = UI.el('div', { class: 'loc-picker' });
+    wrap.appendChild(UI.el('label', { class: 'form-label', text: '📍 موقع المسجد' }));
+    wrap.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:12px;margin-bottom:8px',
+      text: 'الصق رابط Google Maps، أو انقر على الخريطة، أو اسحب الدبوس لتحديد الموقع بدقة.' }));
+
+    const urlInput = UI.el('input', { class: 'input', type: 'text',
+      placeholder: 'الصق رابط Google Maps هنا (اختياري)', value: mapUrl });
+    wrap.appendChild(urlInput);
+
+    const readout = UI.el('div', { class: 'loc-readout text-muted', style: 'font-size:12px;margin:8px 0' });
+    wrap.appendChild(readout);
+
+    function updateReadout() {
+      readout.textContent = (lat != null && lng != null)
+        ? ('الإحداثيات المحددة: ' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6))
+        : 'لم يُحدّد موقع بعد.';
+    }
+    updateReadout();
+
+    let map = null, marker = null;
+
+    if (typeof window.L === 'undefined') {
+      wrap.appendChild(UI.el('div', { class: 'text-muted',
+        text: 'تعذّر تحميل الخريطة — سيُستخرج الموقع من الرابط عند الحفظ.' }));
+    } else {
+      const mapDiv = UI.el('div', { class: 'map-container map-pick' });
+      wrap.appendChild(mapDiv);
+
+      setTimeout(function () {
+        const start = (lat != null && lng != null) ? [lat, lng] : DEFAULT_CENTER;
+        const zoom = (lat != null && lng != null) ? 16 : 6;
+        map = L.map(mapDiv).setView(start, zoom);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        function placeMarker(la, ln) {
+          lat = la; lng = ln;
+          if (!marker) {
+            marker = L.marker([la, ln], { draggable: true }).addTo(map);
+            marker.on('dragend', function () {
+              const p = marker.getLatLng();
+              lat = p.lat; lng = p.lng; pendingShortUrl = ''; updateReadout();
+            });
+          } else {
+            marker.setLatLng([la, ln]);
+          }
+          updateReadout();
+        }
+        if (lat != null && lng != null) placeMarker(lat, lng);
+
+        map.on('click', function (e) {
+          placeMarker(e.latlng.lat, e.latlng.lng);
+          pendingShortUrl = ''; // النقر يحسم الموقع يدوياً
+        });
+
+        // لصق رابط → انقل الدبوس فوراً إن أمكن استخراج الإحداثيات محلياً
+        urlInput.addEventListener('input', function () {
+          const u = urlInput.value.trim();
+          mapUrl = u;
+          const c = extractCoordsFromUrl(u);
+          if (c) {
+            pendingShortUrl = '';
+            placeMarker(Number(c.lat), Number(c.lng));
+            map.setView([Number(c.lat), Number(c.lng)], 16);
+          } else if (u && isShortMapUrl(u)) {
+            pendingShortUrl = u; // الخادم سيحلّه
+            readout.textContent = 'رابط مختصر — سيُحدَّد الموقع على الخادم عند الحفظ.';
+          }
+        });
+
+        setTimeout(function () { map.invalidateSize(); }, 250);
+      }, 60);
+    }
+
+    // مزامنة الرابط عند غياب الخريطة أيضاً
+    urlInput.addEventListener('input', function () {
+      mapUrl = urlInput.value.trim();
+      if (!map) {
+        const c = extractCoordsFromUrl(mapUrl);
+        if (c) { lat = Number(c.lat); lng = Number(c.lng); pendingShortUrl = ''; updateReadout(); }
+        else if (mapUrl && isShortMapUrl(mapUrl)) { pendingShortUrl = mapUrl; }
+      }
+    });
+
+    return {
+      node: wrap,
+      getState: function () {
+        return { lat: lat, lng: lng, url: mapUrl, shortUrl: pendingShortUrl };
+      }
+    };
+  }
+
   function openForm(row) {
     const isEdit = !!row;
-    Components.formModal(isEdit ? 'تعديل مسجد' : 'إضافة مسجد', FIELDS, row || {}, async function (vals, m) {
-      const payload = Object.assign({}, vals);
-      const mapUrl = (vals.MapURL || '').trim();
+    const built = Components.form(TEXT_FIELDS, row || {});
+    const picker = buildLocationPicker(row);
 
-      // استخراج الإحداثيات محلياً إن أمكن لتفادي بطء UrlFetchApp
-      if (mapUrl && !isShortMapUrl(mapUrl)) {
-        const coords = extractCoordsFromUrl(mapUrl);
-        if (coords) {
-          payload._clientLat = coords.lat;
-          payload._clientLng = coords.lng;
-        }
+    // إدراج منتقي الموقع داخل النموذج (بعرض كامل)
+    const locRow = UI.el('div', { class: 'form-row full' }, [picker.node]);
+    built.formNode.querySelector('.form-grid').appendChild(locRow);
+
+    const footer = UI.el('div', { class: 'modal-footer' });
+    const m = UI.modal(isEdit ? 'تعديل مسجد' : 'إضافة مسجد', built.formNode, { footer: footer });
+    footer.appendChild(UI.el('button', { class: 'btn btn-ghost', text: 'إلغاء', onclick: m.close }));
+    const saveBtn = UI.el('button', { class: 'btn btn-primary', text: 'حفظ', onclick: async function () {
+      if (!built.formNode.reportValidity()) return;
+      const vals = built.getValues();
+      const loc = picker.getState();
+      const payload = Object.assign({}, vals);
+      payload.MapURL = loc.url || '';
+      // إحداثيات الدبوس المؤكَّدة (الأولوية) — تُرسل صراحةً للخادم
+      if (loc.lat != null && loc.lng != null) {
+        payload._clientLat = String(loc.lat);
+        payload._clientLng = String(loc.lng);
+      } else if (loc.shortUrl) {
+        payload.MapURL = loc.shortUrl; // يحلّه الخادم
       }
 
-      if (isEdit) { payload.id = row.ID; await API.call('mosques.update', payload); }
-      else { await API.call('mosques.create', payload); }
-      m.close();
-      UI.toast(isEdit ? 'تم تحديث المسجد' : 'تمت إضافة المسجد', 'success');
-      load();
-    });
+      saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
+      try {
+        if (isEdit) { payload.id = row.ID; await API.call('mosques.update', payload); }
+        else { await API.call('mosques.create', payload); }
+        m.close();
+        UI.toast(isEdit ? 'تم تحديث المسجد' : 'تمت إضافة المسجد', 'success');
+        load();
+      } catch (err) {
+        UI.toast(err.message, 'error');
+        saveBtn.disabled = false; saveBtn.textContent = 'حفظ';
+      }
+    } });
+    footer.appendChild(saveBtn);
   }
 
   function confirmDelete(row) {

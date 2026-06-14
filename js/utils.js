@@ -76,8 +76,10 @@ window.UI = (function () {
     overlay.appendChild(box);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
 
-    // إخفاء حاويات الخريطة برمجياً — الحل الوحيد المضمون لمنع طبقات Leaflet من الطفو
-    const maps = Array.prototype.slice.call(document.querySelectorAll('.map-container'));
+    // إخفاء خرائط الخلفية برمجياً (الحل المضمون لمنع طبقات Leaflet من الطفو فوق
+    // النافذة)، مع استثناء أي خريطة داخل نافذة منبثقة (مثل منتقي موقع المسجد).
+    const maps = Array.prototype.slice.call(document.querySelectorAll('.map-container'))
+      .filter(function (m) { return !m.closest('.modal-overlay'); });
     maps.forEach(function (m) { m.style.visibility = 'hidden'; });
     _openModals++;
     document.body.classList.add('has-modal');

@@ -27,7 +27,7 @@
     const h = UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [UI.el('h2', { text: 'الزيارات الميدانية' }), UI.el('div', { class: 'page-subtitle', text: 'تسجيل ومتابعة الزيارات والتقييمات' })])
     ]);
-    if (Auth.can(['admin', 'supervisor', 'inspector'])) {
+    if (Auth.cap('visits.create')) {
       h.appendChild(UI.el('button', { class: 'btn btn-primary', text: '+ تسجيل زيارة', onclick: function () { openForm(); } }));
     }
     page.appendChild(h);
@@ -52,8 +52,8 @@
       listWrap.innerHTML = '';
       listWrap.appendChild(Components.table(columns, data.items, {
         onView: viewDetail,
-        onEdit: Auth.can(['admin', 'supervisor', 'inspector']) ? function (r) { openForm(r); } : null,
-        onDelete: Auth.can(['admin', 'supervisor']) ? confirmDelete : null
+        onEdit: Auth.cap('visits.edit') ? function (r) { openForm(r); } : null,
+        onDelete: Auth.cap('visits.delete') ? confirmDelete : null
       }));
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }

@@ -23,7 +23,7 @@
     const h = UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [UI.el('h2', { text: 'البلاغات والملاحظات' }), UI.el('div', { class: 'page-subtitle', text: 'إنشاء ومتابعة البلاغات حتى الإغلاق' })])
     ]);
-    if (Auth.can(['admin', 'supervisor', 'inspector'])) {
+    if (Auth.cap('reports.create')) {
       h.appendChild(UI.el('button', { class: 'btn btn-primary', text: '+ إنشاء بلاغ', onclick: function () { openForm(); } }));
     }
     page.appendChild(h);
@@ -55,8 +55,8 @@
       listWrap.innerHTML = '';
       listWrap.appendChild(Components.table(columns, data.items, {
         onView: viewDetail,
-        onEdit: Auth.can(['admin', 'supervisor']) ? function (r) { openForm(r); } : null,
-        onDelete: Auth.can(['admin']) ? confirmDelete : null
+        onEdit: Auth.cap('reports.edit') ? function (r) { openForm(r); } : null,
+        onDelete: Auth.cap('reports.delete') ? confirmDelete : null
       }));
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }
@@ -101,9 +101,9 @@
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'أنشأه' }), UI.el('div', { class: 'v', text: row.CreatedBy })]));
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'تاريخ الإنشاء' }), UI.el('div', { class: 'v', text: UI.fmtDateTime(row.CreatedAt) })]));
 
-    // إدارة الحالة (للمشرفين والمدير)
+    // إدارة الحالة (حسب صلاحية تغيير حالة البلاغ)
     const statusRow = UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'الحالة' })]);
-    if (Auth.can(['admin', 'supervisor'])) {
+    if (Auth.cap('reports.status')) {
       const sel = UI.el('select', { class: 'select' });
       ENUMS.reportStatus.forEach(function (s) {
         const o = UI.el('option', { value: s, text: s });

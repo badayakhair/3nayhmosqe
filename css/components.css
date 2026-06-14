@@ -180,6 +180,16 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 body.has-modal .leaflet-container { z-index: 0 !important; }
 .leaflet-popup-content { font-family: var(--font); direction: rtl; text-align: right; font-size: 13px; }
 
+/* منتقي موقع المسجد داخل النموذج */
+.loc-picker { margin-top: 6px; }
+.map-container.map-pick { height: 280px; margin-top: 8px; }
+.loc-readout { font-weight: 600; }
+
+/* مصفوفة الصلاحيات */
+.perm-matrix th, .perm-matrix td { white-space: nowrap; }
+.perm-matrix input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; accent-color: var(--primary); }
+.perm-group-row td { font-size: 13px; }
+
 /* الصور المرفقة */
 .image-grid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .image-grid img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }

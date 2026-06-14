@@ -1,15 +1,18 @@
 /**
- * pages/exports.js — مركز التقارير (تصدير PDF)
+ * pages/exports.js — مركز التقارير (تصدير PDF / CSV) مع تخصيص واسع
  *
- * يبني تقريراً منسّقاً في الحاوية #report-output ثم يفتح نافذة الطباعة،
- * حيث يمكن للمستخدم اختيار «حفظ كـ PDF». هذه الطريقة تعرض العربية (RTL والتشكيل)
- * بشكل صحيح تماماً لأن المتصفح هو من يتولى الطباعة.
+ * يبني التقرير ببنية بيانات منظمة (أعمدة + صفوف) ثم يعرضها، مما يتيح:
+ *  - اختيار الأعمدة المعروضة.
+ *  - فلاتر تتكيّف مع نوع التقرير (الحالة/الأولوية/النوع).
+ *  - تصدير PDF عبر طباعة المتصفح (دعم عربي كامل) أو CSV (يفتح في Excel).
+ *  - اتجاه الصفحة (طولي/عرضي) وإحصائيات تجميعية.
  */
 (function () {
   Layout.render('exports');
   const page = UI.$('#page');
   const out = document.getElementById('report-output');
   let mosques = [];
+  let current = null; // آخر تقرير مُولّد (للأعمدة وCSV)
 
   const TYPES = [
     { value: 'summary',     label: 'ملخص تنفيذي عام' },
@@ -20,42 +23,67 @@
     { value: 'mosque',      label: 'تقرير مسجد شامل' }
   ];
 
+  let typeSel, mosqueSel, fromInp, toInp, orientSel, dynWrap, colWrap;
+
   async function init() {
     page.innerHTML = '';
     page.appendChild(UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [
         UI.el('h2', { text: 'مركز التقارير' }),
-        UI.el('div', { class: 'page-subtitle', text: 'اختر نوع التقرير ونطاقه ثم اطبعه أو احفظه كملف PDF' })
+        UI.el('div', { class: 'page-subtitle', text: 'اختر نوع التقرير ونطاقه وأعمدته ثم صدّره PDF أو CSV' })
       ])
     ]));
 
     try { mosques = await Components.mosqueOptions(); }
     catch (e) { UI.toast(e.message, 'error'); }
 
-    const typeSel = selectEl('type', TYPES);
-    const mosqueSel = selectEl('mosqueId', [{ value: '', label: '— كل المساجد —' }].concat(mosques));
-    const fromInp = UI.el('input', { class: 'input', type: 'date', name: 'from' });
-    const toInp = UI.el('input', { class: 'input', type: 'date', name: 'to' });
+    typeSel = selectEl('type', TYPES);
+    mosqueSel = selectEl('mosqueId', [{ value: '', label: '— كل المساجد —' }].concat(mosques));
+    fromInp = UI.el('input', { class: 'input', type: 'date', name: 'from' });
+    toInp = UI.el('input', { class: 'input', type: 'date', name: 'to' });
+    orientSel = selectEl('orient', [{ value: 'portrait', label: 'طولي' }, { value: 'landscape', label: 'عرضي' }]);
+    dynWrap = UI.el('div', { class: 'form-grid', style: 'grid-column:1/-1' });
+
+    typeSel.addEventListener('change', renderDynamicFilters);
 
     const card = UI.el('div', { class: 'card' }, [
       UI.el('div', { class: 'form-grid' }, [
         formRow('نوع التقرير', typeSel),
         formRow('المسجد', mosqueSel),
         formRow('من تاريخ', fromInp),
-        formRow('إلى تاريخ', toInp)
+        formRow('إلى تاريخ', toInp),
+        formRow('اتجاه الطباعة', orientSel)
       ]),
+      dynWrap,
       UI.el('div', { class: 'mt-16', style: 'display:flex;gap:10px;flex-wrap:wrap' }, [
-        UI.el('button', { class: 'btn btn-primary', text: '🖨️ توليد التقرير وحفظ PDF', onclick: function () {
-          generate(typeSel.value, mosqueSel.value, fromInp.value, toInp.value);
-        } })
-      ]),
-      UI.el('div', { class: 'text-muted mt-16', style: 'font-size:12px',
-        text: 'ملاحظة: في نافذة الطباعة اختر «الوجهة: حفظ كـ PDF» للحصول على ملف PDF.' })
+        UI.el('button', { class: 'btn btn-primary', text: '📊 توليد التقرير', onclick: function () { generate(); } })
+      ])
     ]);
     page.appendChild(card);
 
-    // انقل حاوية التقرير داخل منطقة المحتوى لعرض أنيق على الشاشة
+    colWrap = UI.el('div', { class: 'card', style: 'display:none;margin-top:16px' });
+    page.appendChild(colWrap);
+
     page.appendChild(out);
+    renderDynamicFilters();
+  }
+
+  /** فلاتر إضافية حسب نوع التقرير. */
+  function renderDynamicFilters() {
+    dynWrap.innerHTML = '';
+    const t = typeSel.value;
+    if (t === 'reports') {
+      dynWrap.appendChild(formRow('الحالة', selectEl('status', optList('— كل الحالات —', ENUMS.reportStatus))));
+      dynWrap.appendChild(formRow('الأولوية', selectEl('priority', optList('— كل الأولويات —', ENUMS.reportPriority))));
+      dynWrap.appendChild(formRow('النوع', selectEl('rtype', optList('— كل الأنواع —', ENUMS.reportTypes))));
+    } else if (t === 'assets') {
+      dynWrap.appendChild(formRow('النوع', selectEl('atype', optList('— كل الأنواع —', ENUMS.assetTypes))));
+      dynWrap.appendChild(formRow('الحالة', selectEl('astatus', optList('— كل الحالات —', ENUMS.assetStatus))));
+    }
+  }
+
+  function optList(allLabel, arr) {
+    return [{ value: '', label: allLabel }].concat(arr.map(function (x) { return { value: x, label: x }; }));
   }
 
   function selectEl(name, options) {
@@ -71,86 +99,88 @@
     return UI.el('div', { class: 'form-row' }, [UI.el('label', { class: 'form-label', text: label }), input]);
   }
 
-  async function generate(type, mosqueId, from, to) {
+  function dynVal(name) {
+    const el = dynWrap.querySelector('[name="' + name + '"]');
+    return el ? el.value : '';
+  }
+
+  async function generate() {
+    const type = typeSel.value, mosqueId = mosqueSel.value, from = fromInp.value, to = toInp.value;
     UI.toast('جارٍ تجهيز التقرير…', 'info');
+
     const filters = {};
     if (mosqueId) filters.mosqueId = mosqueId;
     if (from) filters.from = from;
     if (to) filters.to = to;
-
-    let bodyHtml = '';
-    let title = (TYPES.find(function (t) { return t.value === type; }) || {}).label || 'تقرير';
-
-    try {
-      if (type === 'summary') {
-        bodyHtml = await buildSummary();
-      } else if (type === 'reports') {
-        bodyHtml = await buildReports(filters);
-      } else if (type === 'maintenance') {
-        bodyHtml = await buildMaintenance(filters);
-      } else if (type === 'visits') {
-        bodyHtml = await buildVisits(filters);
-      } else if (type === 'assets') {
-        bodyHtml = await buildAssets(filters);
-      } else if (type === 'mosque') {
-        if (!mosqueId) { UI.toast('اختر مسجداً لتقرير المسجد الشامل.', 'error'); return; }
-        bodyHtml = await buildMosque(mosqueId, from, to);
-      }
-    } catch (err) {
-      UI.toast('تعذّر توليد التقرير: ' + err.message, 'error');
-      return;
+    if (type === 'reports') {
+      if (dynVal('status')) filters.status = dynVal('status');
+      if (dynVal('priority')) filters.priority = dynVal('priority');
+      if (dynVal('rtype')) filters.type = dynVal('rtype');
+    } else if (type === 'assets') {
+      if (dynVal('atype')) filters.type = dynVal('atype');
+      if (dynVal('astatus')) filters.status = dynVal('astatus');
     }
 
-    renderReport(title, mosqueId, from, to, bodyHtml);
+    const title = (TYPES.find(function (t) { return t.value === type; }) || {}).label || 'تقرير';
+
+    let data;
+    try {
+      if (type === 'summary')           data = await buildSummary();
+      else if (type === 'reports')      data = await buildTable('reports.list', filters, REPORT_COLS, 'بلاغ');
+      else if (type === 'maintenance')  data = await buildMaintenance(filters);
+      else if (type === 'visits')       data = await buildVisits(filters);
+      else if (type === 'assets')       data = await buildTable('assets.list', filters, ASSET_COLS, 'أصل');
+      else if (type === 'mosque') {
+        if (!mosqueId) { UI.toast('اختر مسجداً لتقرير المسجد الشامل.', 'error'); return; }
+        data = await buildMosque(mosqueId, from, to);
+      }
+    } catch (err) { UI.toast('تعذّر توليد التقرير: ' + err.message, 'error'); return; }
+
+    current = { type: type, title: title, mosqueId: mosqueId, from: from, to: to, data: data };
+    renderColumnToggles();
+    renderReport();
   }
 
-  /* ---------------- بناة التقارير ---------------- */
+  /* ---------------- تعريف الأعمدة ---------------- */
+  // [label, key, fmt?]  fmt: date | num | stars-skip(تُعرض كرقم)
+  const REPORT_COLS = [['التاريخ', 'CreatedAt', 'date'], ['المسجد', 'MosqueName'], ['النوع', 'Type'],
+    ['الأولوية', 'Priority'], ['الوصف', 'Description'], ['الحالة', 'Status'], ['أنشأه', 'CreatedBy']];
+  const ASSET_COLS = [['رقم الأصل', 'AssetNumber'], ['النوع', 'Type'], ['المسجد', 'MosqueName'],
+    ['الحالة', 'Status'], ['آخر صيانة', 'LastMaintDate', 'date']];
+  const MAINT_COLS = [['التاريخ', 'Date', 'date'], ['المسجد', 'MosqueName'], ['المقاول', 'Contractor'],
+    ['التكلفة (ريال)', 'Cost', 'num'], ['الوصف', 'Description']];
+  const VISIT_COLS = [['التاريخ', 'Date', 'date'], ['المسجد', 'MosqueName'], ['المراقب', 'Inspector'],
+    ['النظافة', 'CleanRating'], ['الصيانة', 'MaintRating'], ['التكييف', 'ACRating'], ['دورات المياه', 'ToiletRating']];
 
-  async function buildSummary() {
-    const d = await API.call('dashboard.stats', {});
-    const c = d.cards;
-    const cards = [
-      ['عدد المساجد', c.mosques], ['بلاغات مفتوحة', c.openReports], ['بلاغات حرجة', c.criticalReports],
-      ['زيارات هذا الشهر', c.visitsThisMonth], ['إجمالي أعمال الصيانة', c.maintenanceCount], ['إجمالي الأصول', c.assets]
-    ];
-    let html = '<div class="rep-cards">';
-    cards.forEach(function (k) { html += '<div class="rep-card"><div class="rep-card-v">' + UI.fmtNum(k[1]) + '</div><div class="rep-card-l">' + k[0] + '</div></div>'; });
-    html += '</div>';
-    html += section('البلاغات حسب الحالة', kvTable(d.charts.reportsByStatus));
-    if (Object.keys(d.charts.reportsByType).length) html += section('البلاغات حسب النوع', kvTable(d.charts.reportsByType));
-    if (Object.keys(d.charts.assetsByStatus).length) html += section('الأصول حسب الحالة', kvTable(d.charts.assetsByStatus));
-    return html;
-  }
+  /* ---------------- بناة التقارير (ببنية منظمة) ---------------- */
 
-  async function buildReports(filters) {
-    const d = await API.call('reports.list', filters);
-    const cols = [['التاريخ', 'CreatedAt', 'date'], ['المسجد', 'MosqueName'], ['النوع', 'Type'],
-      ['الأولوية', 'Priority'], ['الوصف', 'Description'], ['الحالة', 'Status'], ['أنشأه', 'CreatedBy']];
-    return countLine(d.total, 'بلاغ') + table(cols, d.items);
+  async function buildTable(action, filters, cols, unit) {
+    const d = await API.call(action, filters);
+    return { kind: 'table', cols: cols, rows: d.items, unit: unit, total: d.total };
   }
 
   async function buildMaintenance(filters) {
     const d = await API.call('maintenance.list', filters);
-    const total = d.items.reduce(function (s, r) { return s + (Number(r.Cost) || 0); }, 0);
-    const cols = [['التاريخ', 'Date', 'date'], ['المسجد', 'MosqueName'], ['المقاول', 'Contractor'],
-      ['التكلفة (ريال)', 'Cost', 'num'], ['الوصف', 'Description']];
-    return countLine(d.total, 'عمل صيانة') +
-      '<p class="rep-total">إجمالي التكاليف: <strong>' + UI.fmtNum(total) + ' ريال</strong></p>' +
-      table(cols, d.items);
+    const sum = d.items.reduce(function (s, r) { return s + (Number(r.Cost) || 0); }, 0);
+    return { kind: 'table', cols: MAINT_COLS, rows: d.items, unit: 'عمل صيانة', total: d.total,
+      aggregates: [['إجمالي التكاليف', UI.fmtNum(sum) + ' ريال']] };
   }
 
   async function buildVisits(filters) {
     const d = await API.call('visits.list', filters);
-    const cols = [['التاريخ', 'Date', 'date'], ['المسجد', 'MosqueName'], ['المراقب', 'Inspector'],
-      ['النظافة', 'CleanRating'], ['الصيانة', 'MaintRating'], ['التكييف', 'ACRating'], ['دورات المياه', 'ToiletRating']];
-    return countLine(d.total, 'زيارة') + table(cols, d.items);
+    const avg = function (k) {
+      if (!d.items.length) return '—';
+      const s = d.items.reduce(function (a, r) { return a + (Number(r[k]) || 0); }, 0);
+      return (s / d.items.length).toFixed(1) + ' / 5';
+    };
+    return { kind: 'table', cols: VISIT_COLS, rows: d.items, unit: 'زيارة', total: d.total,
+      aggregates: [['متوسط النظافة', avg('CleanRating')], ['متوسط الصيانة', avg('MaintRating')],
+        ['متوسط التكييف', avg('ACRating')], ['متوسط دورات المياه', avg('ToiletRating')]] };
   }
 
-  async function buildAssets(filters) {
-    const d = await API.call('assets.list', filters);
-    const cols = [['رقم الأصل', 'AssetNumber'], ['النوع', 'Type'], ['المسجد', 'MosqueName'],
-      ['الحالة', 'Status'], ['آخر صيانة', 'LastMaintDate', 'date']];
-    return countLine(d.total, 'أصل') + table(cols, d.items);
+  async function buildSummary() {
+    const d = await API.call('dashboard.stats', {});
+    return { kind: 'summary', stats: d };
   }
 
   async function buildMosque(mosqueId, from, to) {
@@ -162,55 +192,55 @@
     const maint = (await API.call('maintenance.list', f)).items;
     const visits = (await API.call('visits.list', f)).items;
     const assets = (await API.call('assets.list', { mosqueId: mosqueId })).items;
-
-    let html = section('بيانات المسجد', detailTable([
-      ['الاسم', m.Name], ['الحي', m.District], ['المدينة', m.City],
-      ['عدد المصلين', UI.fmtNum(m.Capacity)], ['دورات المياه', m.Toilets],
-      ['المكيفات', m.ACs], ['الساحات', m.Courts], ['ملاحظات', m.Notes || '—']
-    ]));
-
-    html += section('البلاغات (' + reports.length + ')',
-      table([['التاريخ', 'CreatedAt', 'date'], ['النوع', 'Type'], ['الأولوية', 'Priority'], ['الوصف', 'Description'], ['الحالة', 'Status']], reports));
-    html += section('أعمال الصيانة (' + maint.length + ')',
-      table([['التاريخ', 'Date', 'date'], ['المقاول', 'Contractor'], ['التكلفة', 'Cost', 'num'], ['الوصف', 'Description']], maint));
-    html += section('الزيارات (' + visits.length + ')',
-      table([['التاريخ', 'Date', 'date'], ['المراقب', 'Inspector'], ['النظافة', 'CleanRating'], ['الصيانة', 'MaintRating']], visits));
-    html += section('الأصول (' + assets.length + ')',
-      table([['رقم الأصل', 'AssetNumber'], ['النوع', 'Type'], ['الحالة', 'Status'], ['آخر صيانة', 'LastMaintDate', 'date']], assets));
-    return html;
+    return { kind: 'mosque', m: m, reports: reports, maint: maint, visits: visits, assets: assets };
   }
 
-  /* ---------------- مساعدات بناء HTML ---------------- */
+  /* ---------------- اختيار الأعمدة ---------------- */
 
-  function section(title, inner) {
-    return '<h3 class="rep-section">' + UI.escapeHtml(title) + '</h3>' + inner;
+  function renderColumnToggles() {
+    colWrap.innerHTML = '';
+    if (!current || current.data.kind !== 'table') { colWrap.style.display = 'none'; return; }
+    colWrap.style.display = '';
+    colWrap.appendChild(UI.el('div', { class: 'card-title', text: '🧩 الأعمدة المعروضة' }));
+    const grid = UI.el('div', { style: 'display:flex;flex-wrap:wrap;gap:14px' });
+    current.data.cols.forEach(function (c, i) {
+      const cb = UI.el('input', { type: 'checkbox' });
+      cb.checked = c._hidden !== true;
+      cb.addEventListener('change', function () { c._hidden = !cb.checked; renderReport(); });
+      const lbl = UI.el('label', { style: 'display:flex;align-items:center;gap:6px;font-size:13px' }, [cb, document.createTextNode(c[0])]);
+      grid.appendChild(lbl);
+    });
+    colWrap.appendChild(grid);
   }
 
-  function countLine(n, unit) {
-    return '<p class="rep-count">عدد النتائج: <strong>' + UI.fmtNum(n) + '</strong> ' + unit + '</p>';
+  function visibleCols() {
+    return current.data.cols.filter(function (c) { return c._hidden !== true; });
   }
 
-  function cell(row, def) {
-    const v = row[def[1]];
-    const fmt = def[2];
+  /* ---------------- مساعدات HTML ---------------- */
+
+  function section(title, inner) { return '<h3 class="rep-section">' + UI.escapeHtml(title) + '</h3>' + inner; }
+  function countLine(n, unit) { return '<p class="rep-count">عدد النتائج: <strong>' + UI.fmtNum(n) + '</strong> ' + unit + '</p>'; }
+
+  function cellVal(row, def) {
+    const v = row[def[1]]; const fmt = def[2];
     if (v === '' || v === null || v === undefined) return '—';
     if (fmt === 'date') return UI.fmtDate(v);
     if (fmt === 'num') return UI.fmtNum(v);
-    return UI.escapeHtml(String(v));
+    return String(v);
   }
 
-  function table(cols, rows) {
+  function tableHtml(cols, rows) {
     if (!rows || !rows.length) return '<p class="rep-empty">لا توجد بيانات ضمن النطاق المحدد.</p>';
     let h = '<table class="rep-table"><thead><tr>';
     cols.forEach(function (c) { h += '<th>' + UI.escapeHtml(c[0]) + '</th>'; });
     h += '</tr></thead><tbody>';
     rows.forEach(function (r) {
       h += '<tr>';
-      cols.forEach(function (c) { h += '<td>' + cell(r, c) + '</td>'; });
+      cols.forEach(function (c) { h += '<td>' + UI.escapeHtml(cellVal(r, c)) + '</td>'; });
       h += '</tr>';
     });
-    h += '</tbody></table>';
-    return h;
+    return h + '</tbody></table>';
   }
 
   function kvTable(obj) {
@@ -218,8 +248,7 @@
     Object.keys(obj).forEach(function (k) {
       h += '<tr><td>' + UI.escapeHtml(k) + '</td><td><strong>' + UI.fmtNum(obj[k]) + '</strong></td></tr>';
     });
-    h += '</tbody></table>';
-    return h;
+    return h + '</tbody></table>';
   }
 
   function detailTable(pairs) {
@@ -227,23 +256,62 @@
     pairs.forEach(function (p) {
       h += '<tr><td style="width:160px">' + UI.escapeHtml(p[0]) + '</td><td>' + UI.escapeHtml(String(p[1] == null ? '—' : p[1])) + '</td></tr>';
     });
-    h += '</tbody></table>';
-    return h;
+    return h + '</tbody></table>';
   }
 
-  /* ---------------- العرض والطباعة ---------------- */
+  function aggregatesHtml(pairs) {
+    let h = '<div class="rep-cards">';
+    pairs.forEach(function (p) { h += '<div class="rep-card"><div class="rep-card-v">' + UI.escapeHtml(String(p[1])) + '</div><div class="rep-card-l">' + UI.escapeHtml(p[0]) + '</div></div>'; });
+    return h + '</div>';
+  }
 
-  function renderReport(title, mosqueId, from, to, bodyHtml) {
+  /** يبني جسم HTML للتقرير الحالي وفق الأعمدة المرئية. */
+  function buildBodyHtml() {
+    const data = current.data;
+    if (data.kind === 'summary') {
+      const c = data.stats.cards;
+      const cards = [['عدد المساجد', c.mosques], ['بلاغات مفتوحة', c.openReports], ['بلاغات حرجة', c.criticalReports],
+        ['زيارات هذا الشهر', c.visitsThisMonth], ['إجمالي الصيانة', c.maintenanceCount], ['إجمالي الأصول', c.assets]];
+      let html = '<div class="rep-cards">';
+      cards.forEach(function (k) { html += '<div class="rep-card"><div class="rep-card-v">' + UI.fmtNum(k[1]) + '</div><div class="rep-card-l">' + k[0] + '</div></div>'; });
+      html += '</div>';
+      html += section('البلاغات حسب الحالة', kvTable(data.stats.charts.reportsByStatus));
+      if (Object.keys(data.stats.charts.reportsByType).length) html += section('البلاغات حسب النوع', kvTable(data.stats.charts.reportsByType));
+      if (Object.keys(data.stats.charts.assetsByStatus).length) html += section('الأصول حسب الحالة', kvTable(data.stats.charts.assetsByStatus));
+      return html;
+    }
+    if (data.kind === 'mosque') {
+      const m = data.m;
+      let html = section('بيانات المسجد', detailTable([
+        ['الاسم', m.Name], ['الحي', m.District], ['المدينة', m.City],
+        ['عدد المصلين', UI.fmtNum(m.Capacity)], ['دورات المياه', m.Toilets],
+        ['المكيفات', m.ACs], ['الساحات', m.Courts], ['ملاحظات', m.Notes || '—']
+      ]));
+      html += section('البلاغات (' + data.reports.length + ')', tableHtml(REPORT_COLS.slice(0, 6).filter(function (c) { return c[1] !== 'MosqueName'; }), data.reports));
+      html += section('أعمال الصيانة (' + data.maint.length + ')', tableHtml(MAINT_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.maint));
+      html += section('الزيارات (' + data.visits.length + ')', tableHtml(VISIT_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.visits));
+      html += section('الأصول (' + data.assets.length + ')', tableHtml(ASSET_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.assets));
+      return html;
+    }
+    // table
+    let html = countLine(data.total, data.unit);
+    if (data.aggregates && data.aggregates.length) html += aggregatesHtml(data.aggregates);
+    html += tableHtml(visibleCols(), data.rows);
+    return html;
+  }
+
+  /* ---------------- العرض والطباعة والتصدير ---------------- */
+
+  function renderReport() {
     const user = Auth.getUser();
-    const mosqueName = mosqueId ? (mosques.find(function (m) { return String(m.value) === String(mosqueId); }) || {}).label : '';
-
+    const mosqueName = current.mosqueId ? (mosques.find(function (m) { return String(m.value) === String(current.mosqueId); }) || {}).label : '';
     let period = '';
-    if (from || to) period = 'الفترة: ' + (from ? UI.fmtDate(from) : '…') + ' — ' + (to ? UI.fmtDate(to) : '…');
+    if (current.from || current.to) period = 'الفترة: ' + (current.from ? UI.fmtDate(current.from) : '…') + ' — ' + (current.to ? UI.fmtDate(current.to) : '…');
 
     const header =
       '<div class="rep-header">' +
         '<div class="rep-org">🕌 ' + UI.escapeHtml(APP_CONFIG.ORG_NAME) + '</div>' +
-        '<h1 class="rep-title">' + UI.escapeHtml(title) + '</h1>' +
+        '<h1 class="rep-title">' + UI.escapeHtml(current.title) + '</h1>' +
         '<div class="rep-meta">' +
           (mosqueName ? '<span>المسجد: ' + UI.escapeHtml(mosqueName) + '</span>' : '') +
           (period ? '<span>' + UI.escapeHtml(period) + '</span>' : '') +
@@ -251,22 +319,51 @@
           '<span>أعدّه: ' + UI.escapeHtml(user.name) + '</span>' +
         '</div>' +
       '</div>';
-
     const footer = '<div class="rep-footer">نظام العناية بالمساجد — ' + UI.escapeHtml(APP_CONFIG.ORG_NAME) + '</div>';
 
-    out.innerHTML = header + '<div class="rep-body">' + bodyHtml + '</div>' + footer;
+    out.innerHTML = header + '<div class="rep-body">' + buildBodyHtml() + '</div>' + footer;
     out.classList.add('visible');
+    applyOrientation();
 
-    // زر طباعة عائم في المعاينة على الشاشة
     let bar = document.getElementById('print-bar');
-    if (!bar) {
-      bar = UI.el('div', { id: 'print-bar', class: 'no-print', style: 'position:sticky;bottom:0;text-align:center;padding:12px;background:var(--surface);border-top:1px solid var(--border);margin-top:16px' }, [
-        UI.el('button', { class: 'btn btn-primary', text: '🖨️ طباعة / حفظ PDF', onclick: function () { window.print(); } })
-      ]);
-      page.appendChild(bar);
+    if (bar) bar.remove();
+    bar = UI.el('div', { id: 'print-bar', class: 'no-print', style: 'position:sticky;bottom:0;text-align:center;padding:12px;background:var(--surface);border-top:1px solid var(--border);margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap' }, [
+      UI.el('button', { class: 'btn btn-primary', text: '🖨️ طباعة / حفظ PDF', onclick: function () { window.print(); } })
+    ]);
+    if (current.data.kind === 'table') {
+      bar.appendChild(UI.el('button', { class: 'btn btn-ghost', text: '⬇️ تصدير CSV', onclick: exportCsv }));
     }
+    page.appendChild(bar);
     out.scrollIntoView({ behavior: 'smooth' });
-    UI.toast('تم توليد التقرير. اضغط «طباعة / حفظ PDF».', 'success');
+    UI.toast('تم توليد التقرير.', 'success');
+  }
+
+  function applyOrientation() {
+    let st = document.getElementById('print-orient');
+    if (!st) { st = document.createElement('style'); st.id = 'print-orient'; document.head.appendChild(st); }
+    st.textContent = '@page { size: A4 ' + (orientSel.value === 'landscape' ? 'landscape' : 'portrait') + '; margin: 12mm; }';
+  }
+
+  function exportCsv() {
+    if (!current || current.data.kind !== 'table') return;
+    const cols = visibleCols();
+    const lines = [];
+    lines.push(cols.map(function (c) { return csvCell(c[0]); }).join(','));
+    current.data.rows.forEach(function (r) {
+      lines.push(cols.map(function (c) { return csvCell(cellVal(r, c)); }).join(','));
+    });
+    // BOM ليفتح Excel الترميز UTF-8 بشكل صحيح مع العربية
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = UI.el('a', { href: url, download: (current.title || 'تقرير') + '.csv' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    UI.toast('تم تصدير ملف CSV.', 'success');
+  }
+
+  function csvCell(v) {
+    const s = String(v == null ? '' : v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
   init();

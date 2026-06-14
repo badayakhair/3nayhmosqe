@@ -23,7 +23,7 @@
     const h = UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [UI.el('h2', { text: 'الأصول والموجودات' }), UI.el('div', { class: 'page-subtitle', text: 'جرد أصول المساجد وحالتها' })])
     ]);
-    if (Auth.can(['admin', 'supervisor'])) {
+    if (Auth.cap('assets.create')) {
       h.appendChild(UI.el('button', { class: 'btn btn-primary', text: '+ إضافة أصل', onclick: function () { openForm(); } }));
     }
     page.appendChild(h);
@@ -52,8 +52,8 @@
       listWrap.innerHTML = '';
       listWrap.appendChild(Components.table(columns, data.items, {
         onView: viewDetail,
-        onEdit: Auth.can(['admin', 'supervisor']) ? function (r) { openForm(r); } : null,
-        onDelete: Auth.can(['admin']) ? confirmDelete : null
+        onEdit: Auth.cap('assets.edit') ? function (r) { openForm(r); } : null,
+        onDelete: Auth.cap('assets.delete') ? confirmDelete : null
       }));
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }

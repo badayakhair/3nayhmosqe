@@ -12,7 +12,7 @@
     ]);
     const actions = UI.el('div', { class: 'row-actions' });
     actions.appendChild(UI.el('button', { class: 'btn btn-ghost', text: 'تعليم الكل كمقروء', onclick: markAll }));
-    if (Auth.can(['admin', 'supervisor'])) {
+    if (Auth.cap('notifications.generate')) {
       actions.appendChild(UI.el('button', { class: 'btn btn-primary', text: 'فحص التنبيهات الآن', onclick: generate }));
     }
     h.appendChild(actions);

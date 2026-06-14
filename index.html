@@ -50,6 +50,12 @@
       btn.disabled = true; btn.textContent = 'جارٍ الدخول…';
       try {
         await Auth.login(fd.get('email'), fd.get('password'));
+        // تهيئة مسبقة غير محجوبة: تدفئة المخزون المؤقت لأكثر البيانات استخداماً
+        // فيُصبح فتح لوحة التحكم والنماذج فورياً تقريباً.
+        try {
+          API.call('dashboard.stats', {}).catch(function () {});
+          API.call('mosques.list', {}).catch(function () {});
+        } catch (e) { /* تجاهل */ }
         location.href = 'dashboard.html';
       } catch (err) {
         UI.toast(err.message, 'error');

@@ -22,7 +22,7 @@
     const h = UI.el('div', { class: 'page-header' }, [
       UI.el('div', {}, [UI.el('h2', { text: 'أعمال الصيانة' }), UI.el('div', { class: 'page-subtitle', text: 'تسجيل أعمال الصيانة وتكاليفها' })])
     ]);
-    if (Auth.can(['admin', 'supervisor'])) {
+    if (Auth.cap('maintenance.create')) {
       h.appendChild(UI.el('button', { class: 'btn btn-primary', text: '+ تسجيل صيانة', onclick: function () { openForm(); } }));
     }
     page.appendChild(h);
@@ -51,8 +51,8 @@
       ];
       listWrap.appendChild(Components.table(columns, data.items, {
         onView: viewDetail,
-        onEdit: Auth.can(['admin', 'supervisor']) ? function (r) { openForm(r); } : null,
-        onDelete: Auth.can(['admin']) ? confirmDelete : null
+        onEdit: Auth.cap('maintenance.edit') ? function (r) { openForm(r); } : null,
+        onDelete: Auth.cap('maintenance.delete') ? confirmDelete : null
       }));
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }

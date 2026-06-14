@@ -86,6 +86,10 @@ var SHEETS = {
   AuditLog: {
     name: 'AuditLog',
     columns: ['ID', 'UserID', 'UserName', 'Action', 'Module', 'RecordID', 'Timestamp']
+  },
+  Settings: {
+    name: 'Settings',
+    columns: ['Key', 'Value', 'UpdatedAt']
   }
 };
 
@@ -99,6 +103,73 @@ var ENUMS = {
   assetStatus: ['يعمل', 'يحتاج صيانة', 'معطل', 'خارج الخدمة'],
   cleaningSchedule: ['يومي', 'أسبوعي', 'نصف شهري', 'شهري']
 };
+
+/**
+ * قائمة الصلاحيات (Capabilities) القابلة للتخصيص لكل دور.
+ * كل عملية كتابة/عرض حسّاسة ترتبط بصلاحية (cap) في جدول التوجيه.
+ * المدير (admin) يملك كل الصلاحيات دائماً ولا يمكن سحبها منه.
+ */
+var CAPABILITIES = [
+  { key: 'dashboard.view',    label: 'عرض لوحة التحكم',        group: 'لوحة التحكم' },
+  { key: 'mosques.view',      label: 'عرض المساجد',            group: 'المساجد' },
+  { key: 'mosques.create',    label: 'إضافة مسجد',             group: 'المساجد' },
+  { key: 'mosques.edit',      label: 'تعديل مسجد',             group: 'المساجد' },
+  { key: 'mosques.delete',    label: 'حذف مسجد',               group: 'المساجد' },
+  { key: 'visits.view',       label: 'عرض الزيارات',           group: 'الزيارات' },
+  { key: 'visits.create',     label: 'إضافة زيارة',            group: 'الزيارات' },
+  { key: 'visits.edit',       label: 'تعديل زيارة',            group: 'الزيارات' },
+  { key: 'visits.delete',     label: 'حذف زيارة',              group: 'الزيارات' },
+  { key: 'reports.view',      label: 'عرض البلاغات',           group: 'البلاغات' },
+  { key: 'reports.create',    label: 'إضافة بلاغ',             group: 'البلاغات' },
+  { key: 'reports.edit',      label: 'تعديل بلاغ',             group: 'البلاغات' },
+  { key: 'reports.status',    label: 'تغيير حالة البلاغ',       group: 'البلاغات' },
+  { key: 'reports.delete',    label: 'حذف بلاغ',               group: 'البلاغات' },
+  { key: 'maintenance.view',  label: 'عرض الصيانة',            group: 'الصيانة' },
+  { key: 'maintenance.create',label: 'إضافة صيانة',            group: 'الصيانة' },
+  { key: 'maintenance.edit',  label: 'تعديل صيانة',            group: 'الصيانة' },
+  { key: 'maintenance.delete',label: 'حذف صيانة',              group: 'الصيانة' },
+  { key: 'cleaning.view',     label: 'عرض النظافة',            group: 'النظافة' },
+  { key: 'cleaning.create',   label: 'إضافة نظافة',            group: 'النظافة' },
+  { key: 'cleaning.edit',     label: 'تعديل نظافة',            group: 'النظافة' },
+  { key: 'cleaning.delete',   label: 'حذف نظافة',              group: 'النظافة' },
+  { key: 'assets.view',       label: 'عرض الأصول',             group: 'الأصول' },
+  { key: 'assets.create',     label: 'إضافة أصل',              group: 'الأصول' },
+  { key: 'assets.edit',       label: 'تعديل أصل',              group: 'الأصول' },
+  { key: 'assets.delete',     label: 'حذف أصل',                group: 'الأصول' },
+  { key: 'notifications.generate', label: 'توليد التنبيهات الدورية', group: 'الإشعارات' }
+];
+
+/**
+ * المصفوفة الافتراضية: دور -> { صلاحية: مسموح؟ }.
+ * تُستخدم عند عدم وجود تخصيص محفوظ في شيت Settings، وتطابق السلوك الأصلي للنظام.
+ * admin غير مذكور لأنه يملك كل شيء دائماً (يُحقَن تلقائياً).
+ */
+function defaultPermissions_() {
+  function build(allow) {
+    var row = {};
+    CAPABILITIES.forEach(function (c) { row[c.key] = allow.indexOf(c.key) > -1; });
+    return row;
+  }
+  var viewAll = ['dashboard.view','mosques.view','visits.view','reports.view',
+                 'maintenance.view','cleaning.view','assets.view'];
+  return {
+    supervisor: build(viewAll.concat([
+      'mosques.create','mosques.edit',
+      'visits.create','visits.edit','visits.delete',
+      'reports.create','reports.edit','reports.status',
+      'maintenance.create','maintenance.edit',
+      'cleaning.create','cleaning.edit','cleaning.delete',
+      'assets.create','assets.edit',
+      'notifications.generate'
+    ])),
+    inspector: build(viewAll.concat([
+      'visits.create','visits.edit',
+      'reports.create',
+      'cleaning.create','cleaning.edit'
+    ])),
+    viewer: build(viewAll)
+  };
+}
 
 
 /* ============================================================================
@@ -347,6 +418,66 @@ function invalidateMosqueCache_() {
   try { CacheService.getScriptCache().remove('mosqueNames'); } catch (e) {}
 }
 
+/* ---- الإعدادات العامة (Settings sheet) ---- */
+
+/** قراءة قيمة إعداد بالمفتاح، أو null. */
+function getSetting_(key) {
+  var rows = readRows_('Settings');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].Key) === String(key)) return rows[i];
+  }
+  return null;
+}
+
+/** حفظ/تحديث قيمة إعداد. */
+function setSetting_(key, value) {
+  var existing = getSetting_(key);
+  if (existing) {
+    updateRow_('Settings', existing.__row, { Value: value, UpdatedAt: nowIso_() });
+  } else {
+    insertRow_('Settings', { Key: key, Value: value, UpdatedAt: nowIso_() });
+  }
+}
+
+/* ---- مصفوفة الصلاحيات الفعّالة (الافتراضي + التخصيص المحفوظ) ---- */
+
+/**
+ * مصفوفة الصلاحيات الفعّالة: دمج الافتراضي مع أي تخصيص محفوظ في Settings.
+ * مخزّنة مؤقتاً في ذاكرة السكربت لتفادي قراءة الشيت في كل طلب.
+ */
+function getEffectivePermissions_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('perms');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+
+  var perms = defaultPermissions_();
+  var saved = getSetting_('permissions');
+  if (saved && saved.Value) {
+    try {
+      var override = JSON.parse(saved.Value);
+      Object.keys(override).forEach(function (role) {
+        if (!perms[role]) perms[role] = {};
+        Object.keys(override[role]).forEach(function (cap) {
+          perms[role][cap] = !!override[role][cap];
+        });
+      });
+    } catch (e) {}
+  }
+  try { cache.put('perms', JSON.stringify(perms), 120); } catch (e) {}
+  return perms;
+}
+
+function invalidatePermsCache_() {
+  try { CacheService.getScriptCache().remove('perms'); } catch (e) {}
+}
+
+/** هل الدور يملك الصلاحية؟ admin يملك كل شيء دائماً. */
+function permissionAllows_(role, cap) {
+  if (role === 'admin') return true;
+  var perms = getEffectivePermissions_();
+  return !!(perms[role] && perms[role][cap]);
+}
+
 /** إثراء قائمة عناصر بإضافة MosqueName بناءً على MosqueID. */
 function enrichMosqueName_(items) {
   var map = mosqueNameMap_();
@@ -394,62 +525,77 @@ function getRoutes_() {
     'auth.changePassword':   { fn: handleAuth_changePassword,   auth: true,  roles: ['*'] },
 
     // ---- لوحة التحكم ----
-    'dashboard.stats':       { fn: handleDashboard_stats,       auth: true,  roles: ['*'] },
+    'dashboard.stats':       { fn: handleDashboard_stats,       auth: true,  cap: 'dashboard.view' },
 
     // ---- المساجد ----
-    'mosques.list':          { fn: handleMosques_list,          auth: true,  roles: ['*'] },
-    'mosques.get':           { fn: handleMosques_get,           auth: true,  roles: ['*'] },
-    'mosques.create':        { fn: handleMosques_create,        auth: true,  roles: ['admin','supervisor'] },
-    'mosques.update':        { fn: handleMosques_update,        auth: true,  roles: ['admin','supervisor'] },
-    'mosques.delete':        { fn: handleMosques_delete,        auth: true,  roles: ['admin'] },
+    'mosques.list':          { fn: handleMosques_list,          auth: true,  cap: 'mosques.view' },
+    'mosques.get':           { fn: handleMosques_get,           auth: true,  cap: 'mosques.view' },
+    'mosques.create':        { fn: handleMosques_create,        auth: true,  cap: 'mosques.create' },
+    'mosques.update':        { fn: handleMosques_update,        auth: true,  cap: 'mosques.edit' },
+    'mosques.delete':        { fn: handleMosques_delete,        auth: true,  cap: 'mosques.delete' },
 
     // ---- الزيارات الميدانية ----
-    'visits.list':           { fn: handleVisits_list,           auth: true,  roles: ['*'] },
-    'visits.get':            { fn: handleVisits_get,            auth: true,  roles: ['*'] },
-    'visits.create':         { fn: handleVisits_create,         auth: true,  roles: ['admin','supervisor','inspector'] },
-    'visits.update':         { fn: handleVisits_update,         auth: true,  roles: ['admin','supervisor','inspector'] },
-    'visits.delete':         { fn: handleVisits_delete,         auth: true,  roles: ['admin','supervisor'] },
+    'visits.list':           { fn: handleVisits_list,           auth: true,  cap: 'visits.view' },
+    'visits.get':            { fn: handleVisits_get,            auth: true,  cap: 'visits.view' },
+    'visits.create':         { fn: handleVisits_create,         auth: true,  cap: 'visits.create' },
+    'visits.update':         { fn: handleVisits_update,         auth: true,  cap: 'visits.edit' },
+    'visits.delete':         { fn: handleVisits_delete,         auth: true,  cap: 'visits.delete' },
 
     // ---- البلاغات ----
-    'reports.list':          { fn: handleReports_list,          auth: true,  roles: ['*'] },
-    'reports.get':           { fn: handleReports_get,           auth: true,  roles: ['*'] },
-    'reports.create':        { fn: handleReports_create,        auth: true,  roles: ['admin','supervisor','inspector'] },
-    'reports.update':        { fn: handleReports_update,        auth: true,  roles: ['admin','supervisor'] },
-    'reports.updateStatus':  { fn: handleReports_updateStatus,  auth: true,  roles: ['admin','supervisor'] },
-    'reports.delete':        { fn: handleReports_delete,        auth: true,  roles: ['admin'] },
+    'reports.list':          { fn: handleReports_list,          auth: true,  cap: 'reports.view' },
+    'reports.get':           { fn: handleReports_get,           auth: true,  cap: 'reports.view' },
+    'reports.create':        { fn: handleReports_create,        auth: true,  cap: 'reports.create' },
+    'reports.update':        { fn: handleReports_update,        auth: true,  cap: 'reports.edit' },
+    'reports.updateStatus':  { fn: handleReports_updateStatus,  auth: true,  cap: 'reports.status' },
+    'reports.delete':        { fn: handleReports_delete,        auth: true,  cap: 'reports.delete' },
 
     // ---- الصيانة ----
-    'maintenance.list':      { fn: handleMaintenance_list,      auth: true,  roles: ['*'] },
-    'maintenance.get':       { fn: handleMaintenance_get,       auth: true,  roles: ['*'] },
-    'maintenance.create':    { fn: handleMaintenance_create,    auth: true,  roles: ['admin','supervisor'] },
-    'maintenance.update':    { fn: handleMaintenance_update,    auth: true,  roles: ['admin','supervisor'] },
-    'maintenance.delete':    { fn: handleMaintenance_delete,    auth: true,  roles: ['admin'] },
+    'maintenance.list':      { fn: handleMaintenance_list,      auth: true,  cap: 'maintenance.view' },
+    'maintenance.get':       { fn: handleMaintenance_get,       auth: true,  cap: 'maintenance.view' },
+    'maintenance.create':    { fn: handleMaintenance_create,    auth: true,  cap: 'maintenance.create' },
+    'maintenance.update':    { fn: handleMaintenance_update,    auth: true,  cap: 'maintenance.edit' },
+    'maintenance.delete':    { fn: handleMaintenance_delete,    auth: true,  cap: 'maintenance.delete' },
 
     // ---- النظافة ----
-    'cleaning.list':         { fn: handleCleaning_list,         auth: true,  roles: ['*'] },
-    'cleaning.get':          { fn: handleCleaning_get,          auth: true,  roles: ['*'] },
-    'cleaning.create':       { fn: handleCleaning_create,       auth: true,  roles: ['admin','supervisor','inspector'] },
-    'cleaning.update':       { fn: handleCleaning_update,       auth: true,  roles: ['admin','supervisor','inspector'] },
-    'cleaning.delete':       { fn: handleCleaning_delete,       auth: true,  roles: ['admin','supervisor'] },
+    'cleaning.list':         { fn: handleCleaning_list,         auth: true,  cap: 'cleaning.view' },
+    'cleaning.get':          { fn: handleCleaning_get,          auth: true,  cap: 'cleaning.view' },
+    'cleaning.create':       { fn: handleCleaning_create,       auth: true,  cap: 'cleaning.create' },
+    'cleaning.update':       { fn: handleCleaning_update,       auth: true,  cap: 'cleaning.edit' },
+    'cleaning.delete':       { fn: handleCleaning_delete,       auth: true,  cap: 'cleaning.delete' },
 
     // ---- الأصول ----
-    'assets.list':           { fn: handleAssets_list,           auth: true,  roles: ['*'] },
-    'assets.get':            { fn: handleAssets_get,            auth: true,  roles: ['*'] },
-    'assets.create':         { fn: handleAssets_create,         auth: true,  roles: ['admin','supervisor'] },
-    'assets.update':         { fn: handleAssets_update,         auth: true,  roles: ['admin','supervisor'] },
-    'assets.delete':         { fn: handleAssets_delete,         auth: true,  roles: ['admin'] },
+    'assets.list':           { fn: handleAssets_list,           auth: true,  cap: 'assets.view' },
+    'assets.get':            { fn: handleAssets_get,            auth: true,  cap: 'assets.view' },
+    'assets.create':         { fn: handleAssets_create,         auth: true,  cap: 'assets.create' },
+    'assets.update':         { fn: handleAssets_update,         auth: true,  cap: 'assets.edit' },
+    'assets.delete':         { fn: handleAssets_delete,         auth: true,  cap: 'assets.delete' },
 
     // ---- الإشعارات ----
     'notifications.list':    { fn: handleNotifications_list,    auth: true,  roles: ['*'] },
     'notifications.markRead':{ fn: handleNotifications_markRead, auth: true, roles: ['*'] },
-    'notifications.generate':{ fn: handleNotifications_generate, auth: true, roles: ['admin','supervisor'] },
+    'notifications.generate':{ fn: handleNotifications_generate, auth: true, cap: 'notifications.generate' },
 
-    // ---- المستخدمون / الصلاحيات ----
+    // ---- المستخدمون / الصلاحيات (admin فقط) ----
     'users.list':            { fn: handleUsers_list,            auth: true,  roles: ['admin'] },
     'users.create':          { fn: handleUsers_create,          auth: true,  roles: ['admin'] },
     'users.update':          { fn: handleUsers_update,          auth: true,  roles: ['admin'] },
-    'users.delete':          { fn: handleUsers_delete,          auth: true,  roles: ['admin'] }
+    'users.delete':          { fn: handleUsers_delete,          auth: true,  roles: ['admin'] },
+
+    // ---- مصفوفة الصلاحيات (admin فقط) ----
+    'permissions.get':       { fn: handlePermissions_get,       auth: true,  roles: ['admin'] },
+    'permissions.update':    { fn: handlePermissions_update,    auth: true,  roles: ['admin'] }
   };
+}
+
+/** فحص صلاحية الوصول لعملية: عبر الصلاحية (cap) أو قائمة الأدوار (roles). */
+function checkAccess_(route, user) {
+  var role = user.Role || user.role;
+  if (role === 'admin') return true;
+  if (route.cap) return permissionAllows_(role, route.cap);
+  if (route.roles) {
+    return route.roles.indexOf('*') > -1 || route.roles.indexOf(role) > -1;
+  }
+  return true;
 }
 
 /** معالج طلبات POST (الطريقة الأساسية لكل العمليات). */
@@ -490,8 +636,7 @@ function dispatch_(e) {
       }
       user = session.user;
 
-      if (route.roles && route.roles.indexOf('*') === -1 && route.roles.indexOf(user.role) === -1 &&
-          route.roles.indexOf(user.Role) === -1) {
+      if (!checkAccess_(route, user)) {
         return jsonOutput_({ ok: false, error: { code: 'FORBIDDEN', message: 'لا تملك صلاحية تنفيذ هذه العملية.' } });
       }
     }
@@ -501,6 +646,9 @@ function dispatch_(e) {
 
     var payload = body.payload || {};
     var data = route.fn(payload, user);
+
+    // أي عملية كتابة تُبطل تخزين إحصائيات لوحة التحكم لتبقى محدّثة
+    if (isWrite) { try { CacheService.getScriptCache().remove('dashboard:stats'); } catch (e) {} }
 
     return jsonOutput_({ ok: true, data: data });
 
@@ -531,10 +679,21 @@ function jsonOutput_(obj) {
  * [5] المصادقة والجلسات (Auth)
  * ========================================================================== */
 
-/** تسجيل الدخول. payload: { email, password } -> { token, user } */
+var LOGIN_MAX_ATTEMPTS = 6;   // محاولات فاشلة قبل الحظر المؤقت
+var LOGIN_LOCK_SECONDS = 300; // مدة الحظر (5 دقائق)
+
+/** تسجيل الدخول. payload: { email, password } -> { token, user, permissions } */
 function handleAuth_login(payload) {
   requireFields_(payload, ['email', 'password']);
   var email = String(payload.email).trim().toLowerCase();
+
+  // خنق محاولات التخمين: حظر مؤقت بعد عدة محاولات فاشلة لنفس البريد
+  var cache = CacheService.getScriptCache();
+  var akey = 'login_fail:' + email;
+  var attempts = parseInt(cache.get(akey) || '0', 10);
+  if (attempts >= LOGIN_MAX_ATTEMPTS) {
+    throw new Error('تم تجاوز عدد المحاولات المسموح. حاول مجدداً بعد بضع دقائق.');
+  }
 
   var users = readRows_('Users');
   var user = null;
@@ -542,11 +701,14 @@ function handleAuth_login(payload) {
     if (String(users[i].Email).trim().toLowerCase() === email) { user = users[i]; break; }
   }
 
-  if (!user) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
-  if (!isTrue_(user.Active)) throw new Error('هذا الحساب موقوف. راجع مدير النظام.');
-  if (!verifyPassword_(user.PasswordHash, payload.password)) {
+  var ok = user && isTrue_(user.Active) && verifyPassword_(user.PasswordHash, payload.password);
+  if (!ok) {
+    try { cache.put(akey, String(attempts + 1), LOGIN_LOCK_SECONDS); } catch (e) {}
+    if (user && !isTrue_(user.Active)) throw new Error('هذا الحساب موقوف. راجع مدير النظام.');
     throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
   }
+
+  try { cache.remove(akey); } catch (e) {} // إعادة الضبط عند النجاح
 
   // ترقية تلقائية لتجزئة كلمة المرور إلى الصيغة الأحدث عند الدخول
   if (isLegacyHash_(user.PasswordHash)) {
@@ -555,12 +717,12 @@ function handleAuth_login(payload) {
 
   var token = createSession_(user.ID);
   audit_(user, 'login', 'Auth', user.ID);
-  return { token: token, user: publicUser_(user) };
+  return { token: token, user: publicUser_(user), permissions: getEffectivePermissions_() };
 }
 
-/** إرجاع بيانات المستخدم الحالي من التوكن. */
+/** إرجاع بيانات المستخدم الحالي من التوكن + صلاحياته الفعّالة. */
 function handleAuth_me(payload, user) {
-  return { user: publicUser_(user) };
+  return { user: publicUser_(user), permissions: getEffectivePermissions_() };
 }
 
 /** تسجيل الخروج: حذف الجلسة وإبطالها من الذاكرة المؤقتة فوراً. */
@@ -592,7 +754,9 @@ function createSession_(userId) {
   var token = Utilities.getUuid() + '-' + Date.now();
   var expires = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
   insertRow_('Sessions', { Token: token, UserID: userId, ExpiresAt: expires, CreatedAt: nowIso_() });
-  cleanupSessions_();
+  // تنظيف الجلسات المنتهية ليس على المسار الساخن لكل دخول (عملية بطيئة): نشغّله
+  // احتمالياً فقط (~10%) وأيضاً عبر المشغّل اليومي، فيظل الدخول سريعاً.
+  if (Math.random() < 0.1) { try { cleanupSessions_(); } catch (e) {} }
   return token;
 }
 
@@ -669,6 +833,12 @@ function publicUser_(user) {
  * ========================================================================== */
 
 function handleDashboard_stats(payload, user) {
+  // تخزين مؤقت قصير: إحصائيات لوحة التحكم تقرأ 5 شيتات (أبطأ عملية). تُبطَل
+  // تلقائياً بعد أي عملية كتابة (راجع dispatch_) فتبقى البيانات محدّثة.
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('dashboard:stats');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+
   var mosques = readRows_('Mosques');
   var reports = readRows_('Reports');
   var visits = readRows_('Visits');
@@ -696,7 +866,7 @@ function handleDashboard_stats(payload, user) {
   var visitsTrend = monthlyTrend_(visits, 'Date', 6);
   var maintCostTrend = monthlyTrend_(maintenance, 'Date', 6, 'Cost');
 
-  return {
+  var result = {
     cards: {
       mosques: mosques.length,
       openReports: openReports.length,
@@ -714,6 +884,8 @@ function handleDashboard_stats(payload, user) {
       maintCostTrend: maintCostTrend
     }
   };
+  try { cache.put('dashboard:stats', JSON.stringify(result), 30); } catch (e) {}
+  return result;
 }
 
 /** سلسلة شهرية لآخر n أشهر. مع sumField تجمع القيم، وإلا تَعُدّ العناصر. */
@@ -763,14 +935,14 @@ function handleMosques_create(payload, user) {
   requireFields_(payload, ['Name', 'District', 'City']);
   var lat = payload.Lat || '', lng = payload.Lng || '';
   var mapUrl = payload.MapURL || '';
-  if (mapUrl) {
-    // الواجهة ترسل الإحداثيات مستخرجة محلياً إن أمكن (للروابط الكاملة) — نستخدمها مباشرة
-    if (payload._clientLat && payload._clientLng) {
-      lat = payload._clientLat; lng = payload._clientLng;
-    } else {
-      var c = resolveMapUrl_(mapUrl);
-      if (c) { lat = c.lat; lng = c.lng; }
-    }
+  // الأولوية لإحداثيات الدبوس المؤكَّدة من منتقي الخريطة (الأدق والأوضح للمستخدم).
+  if (payload._clientLat !== undefined && payload._clientLat !== '' &&
+      payload._clientLng !== undefined && payload._clientLng !== '') {
+    lat = payload._clientLat; lng = payload._clientLng;
+  } else if (mapUrl) {
+    // رابط مختصر يحتاج تتبّعاً على الخادم لاستخراج الإحداثيات
+    var c = resolveMapUrl_(mapUrl);
+    if (c) { lat = c.lat; lng = c.lng; }
   }
   var obj = {
     ID: genId_('MSQ'), Name: payload.Name, District: payload.District, City: payload.City,
@@ -790,19 +962,18 @@ function handleMosques_update(payload, user) {
   var row = findById_('Mosques', payload.id);
   if (!row) throw new Error('المسجد غير موجود.');
   var patch = pick_(payload, ['Name','District','City','Capacity','Toilets','ACs','Courts','Notes','Images']);
-  // إن أُرسل رابط خرائط، خزّنه واستخرج منه الإحداثيات تلقائياً
-  if (payload.MapURL !== undefined) {
-    patch.MapURL = payload.MapURL;
+  if (payload.MapURL !== undefined) patch.MapURL = payload.MapURL;
+
+  // الأولوية لإحداثيات الدبوس المؤكَّدة من منتقي الخريطة.
+  if (payload._clientLat !== undefined && payload._clientLat !== '' &&
+      payload._clientLng !== undefined && payload._clientLng !== '') {
+    patch.Lat = payload._clientLat; patch.Lng = payload._clientLng;
+  } else if (payload.MapURL !== undefined) {
     if (payload.MapURL) {
-      // الواجهة ترسل الإحداثيات مستخرجة محلياً إن أمكن (للروابط الكاملة)
-      if (payload._clientLat && payload._clientLng) {
-        patch.Lat = payload._clientLat; patch.Lng = payload._clientLng;
-      } else {
-        var c = resolveMapUrl_(payload.MapURL);
-        if (c) { patch.Lat = c.lat; patch.Lng = c.lng; }
-      }
+      var c = resolveMapUrl_(payload.MapURL);
+      if (c) { patch.Lat = c.lat; patch.Lng = c.lng; }
     } else {
-      patch.Lat = ''; patch.Lng = '';
+      patch.Lat = ''; patch.Lng = ''; // مُسح الرابط → مُسح الموقع
     }
   }
   // السماح بإدخال إحداثيات يدوية صريحة عند الحاجة
@@ -1191,7 +1362,8 @@ function handleNotifications_markRead(payload, user) {
   if (payload.id === 'ALL') {
     var rows = readRows_('Notifications');
     rows.forEach(function (r) {
-      if ((String(r.UserID) === String(user.ID) || r.UserID === '') && !isTrue_(r.IsRead)) {
+      var mine = String(r.UserID) === String(user.ID) || r.UserID === '' || r.UserID === null || r.UserID === undefined;
+      if (mine && !isTrue_(r.IsRead)) {
         updateRow_('Notifications', r.__row, { IsRead: true });
       }
     });
@@ -1299,6 +1471,10 @@ function handleUsers_update(payload, user) {
     throw new Error('لا يمكنك إيقاف حسابك الخاص.');
   }
   var updated = updateRow_('Users', row.__row, patch);
+  // تغيير الدور أو إيقاف الحساب أو كلمة المرور يُنهي جلسات المستخدم فوراً
+  if (payload.Role !== undefined || payload.Active !== undefined || payload.Password) {
+    invalidateUserSessions_(payload.id);
+  }
   audit_(user, 'update', 'Users', payload.id);
   return { item: { ID: updated.ID, Name: updated.Name, Email: updated.Email, Role: updated.Role, Active: isTrue_(updated.Active) } };
 }
@@ -1307,8 +1483,63 @@ function handleUsers_delete(payload, user) {
   requireFields_(payload, ['id']);
   if (String(payload.id) === String(user.ID)) throw new Error('لا يمكنك حذف حسابك الخاص.');
   if (!deleteById_('Users', payload.id)) throw new Error('المستخدم غير موجود.');
+  invalidateUserSessions_(payload.id); // إنهاء جلسات المستخدم المحذوف فوراً
   audit_(user, 'delete', 'Users', payload.id);
   return { done: true };
+}
+
+/**
+ * إنهاء كل جلسات مستخدم معيّن فوراً (حذفها من الشيت والذاكرة المؤقتة).
+ * يُستدعى عند تغيير الدور/الإيقاف/الحذف لتطبيق التغيير لحظياً دون انتظار انتهاء
+ * مدة التخزين المؤقت للجلسة.
+ */
+function invalidateUserSessions_(userId) {
+  try {
+    var sh = getSheet_('Sessions');
+    var rows = readRows_('Sessions');
+    var cache = CacheService.getScriptCache();
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (String(rows[i].UserID) === String(userId)) {
+        try { cache.remove('sess:' + rows[i].Token); } catch (e) {}
+        sh.deleteRow(rows[i].__row);
+      }
+    }
+  } catch (e) { /* تجاهل */ }
+}
+
+
+/* ============================================================================
+ * [14ب] مصفوفة الصلاحيات (Permissions) — admin فقط
+ * ========================================================================== */
+
+/** إرجاع قائمة الصلاحيات والأدوار والمصفوفة الفعّالة الحالية. */
+function handlePermissions_get(payload, user) {
+  return {
+    capabilities: CAPABILITIES,
+    roles: ENUMS.roles.filter(function (r) { return r !== 'admin'; }),
+    matrix: getEffectivePermissions_(),
+    defaults: defaultPermissions_()
+  };
+}
+
+/** حفظ تخصيص مصفوفة الصلاحيات. payload: { matrix: { role: { cap: bool } } } */
+function handlePermissions_update(payload, user) {
+  if (!payload || !payload.matrix || typeof payload.matrix !== 'object') {
+    throw new Error('مصفوفة الصلاحيات غير صالحة.');
+  }
+  // تنظيف: نخزّن فقط الأدوار والصلاحيات المعروفة (تجاهل admin)
+  var clean = {};
+  var capKeys = CAPABILITIES.map(function (c) { return c.key; });
+  ENUMS.roles.forEach(function (role) {
+    if (role === 'admin') return;
+    var src = payload.matrix[role] || {};
+    clean[role] = {};
+    capKeys.forEach(function (cap) { clean[role][cap] = !!src[cap]; });
+  });
+  setSetting_('permissions', JSON.stringify(clean));
+  invalidatePermsCache_();
+  audit_(user, 'update', 'Permissions', '');
+  return { matrix: getEffectivePermissions_() };
 }
 
 
@@ -1368,5 +1599,6 @@ function installDailyTrigger() {
 /** الدالة التي يستدعيها المشغّل الزمني يومياً. */
 function dailyNotificationsJob() {
   var n = runScheduledChecks_();
+  try { cleanupSessions_(); } catch (e) {}
   Logger.log('تم توليد ' + n + ' إشعار/تنبيه.');
 }

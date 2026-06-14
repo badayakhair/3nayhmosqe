@@ -9,16 +9,16 @@ window.Layout = (function () {
 
   // عناصر القائمة الجانبية: المفتاح، العنوان، الأيقونة، الرابط، الأدوار المسموح لها بالرؤية
   const NAV = [
-    { key: 'dashboard',     label: 'لوحة التحكم',   icon: '📊', href: 'dashboard.html' },
-    { key: 'mosques',       label: 'المساجد',        icon: '🕌', href: 'mosques.html' },
-    { key: 'visits',        label: 'الزيارات الميدانية', icon: '📋', href: 'visits.html' },
-    { key: 'reports',       label: 'البلاغات',       icon: '🚩', href: 'reports.html' },
-    { key: 'maintenance',   label: 'الصيانة',        icon: '🔧', href: 'maintenance.html' },
-    { key: 'cleaning',      label: 'النظافة',        icon: '🧹', href: 'cleaning.html' },
-    { key: 'assets',        label: 'الأصول',         icon: '📦', href: 'assets.html' },
+    { key: 'dashboard',     label: 'لوحة التحكم',   icon: '📊', href: 'dashboard.html', cap: 'dashboard.view' },
+    { key: 'mosques',       label: 'المساجد',        icon: '🕌', href: 'mosques.html', cap: 'mosques.view' },
+    { key: 'visits',        label: 'الزيارات الميدانية', icon: '📋', href: 'visits.html', cap: 'visits.view' },
+    { key: 'reports',       label: 'البلاغات',       icon: '🚩', href: 'reports.html', cap: 'reports.view' },
+    { key: 'maintenance',   label: 'الصيانة',        icon: '🔧', href: 'maintenance.html', cap: 'maintenance.view' },
+    { key: 'cleaning',      label: 'النظافة',        icon: '🧹', href: 'cleaning.html', cap: 'cleaning.view' },
+    { key: 'assets',        label: 'الأصول',         icon: '📦', href: 'assets.html', cap: 'assets.view' },
     { key: 'exports',       label: 'التقارير',       icon: '📄', href: 'exports.html' },
     { key: 'notifications', label: 'الإشعارات',      icon: '🔔', href: 'notifications.html' },
-    { key: 'settings',      label: 'المستخدمون',     icon: '⚙️', href: 'settings.html', roles: ['admin'] }
+    { key: 'settings',      label: 'المستخدمون والصلاحيات', icon: '⚙️', href: 'settings.html', roles: ['admin'] }
   ];
 
   function render(activeKey) {
@@ -54,10 +54,23 @@ window.Layout = (function () {
 
     // تحديث عدّاد الإشعارات
     refreshNotificationBadge();
+
+    // جلسة قديمة بلا مصفوفة صلاحيات محفوظة: اجلبها بصمت لتفعيل الأزرار الصحيحة
+    if (!Auth.getPerms()) {
+      API.call('auth.me', {}, { noCache: true }).then(function (d) {
+        if (d && d.permissions) {
+          localStorage.setItem(APP_CONFIG.STORAGE.PERMS, JSON.stringify(d.permissions));
+        }
+      }).catch(function () {});
+    }
   }
 
   function buildSidebar(activeKey, user) {
-    const items = NAV.filter(function (n) { return !n.roles || Auth.can(n.roles); }).map(function (n) {
+    const items = NAV.filter(function (n) {
+      if (n.roles && !Auth.can(n.roles)) return false;
+      if (n.cap && !Auth.cap(n.cap)) return false;
+      return true;
+    }).map(function (n) {
       return UI.el('a', {
         class: 'nav-item' + (n.key === activeKey ? ' active' : ''),
         href: n.href
