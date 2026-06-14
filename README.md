@@ -66,7 +66,7 @@
 |------|---------|
 | **Users** | ID, Name, Email, Role, PasswordHash, Active, CreatedAt |
 | **Sessions** | Token, UserID, ExpiresAt, CreatedAt |
-| **Mosques** | ID, Name, District, City, Lat, Lng, Capacity, Toilets, ACs, Courts, Notes, Images, CreatedAt, UpdatedAt |
+| **Mosques** | ID, Name, District, City, Lat, Lng, Capacity, Toilets, ACs, Courts, Notes, Images, CreatedAt, UpdatedAt, MapURL |
 | **Visits** | ID, MosqueID, Date, Inspector, CleanRating, MaintRating, ACRating, ToiletRating, Notes, Images, CreatedBy, CreatedAt |
 | **Reports** | ID, MosqueID, Type, Priority, Description, Status, Images, CreatedBy, CreatedAt, UpdatedAt, ResolvedAt |
 | **Maintenance** | ID, MosqueID, Contractor, Cost, Date, Description, Documents, CreatedBy, CreatedAt |

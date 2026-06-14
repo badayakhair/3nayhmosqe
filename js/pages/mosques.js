@@ -13,8 +13,7 @@
     { name: 'Toilets', label: 'عدد دورات المياه', type: 'number', min: 0 },
     { name: 'ACs', label: 'عدد المكيفات', type: 'number', min: 0 },
     { name: 'Courts', label: 'عدد الساحات', type: 'number', min: 0 },
-    { name: 'Lat', label: 'خط العرض (Lat)', type: 'text' },
-    { name: 'Lng', label: 'خط الطول (Lng)', type: 'text' },
+    { name: 'MapURL', label: 'رابط موقع Google Maps (الصق رابط الموقع — تُستخرج الإحداثيات تلقائياً)', type: 'text', full: true },
     { name: 'Images', label: 'روابط الصور (مفصولة بفاصلة)', type: 'text', full: true },
     { name: 'Notes', label: 'ملاحظات عامة', type: 'textarea', full: true }
   ];
@@ -96,11 +95,12 @@
       geo.forEach(function (m) {
         const lat = Number(m.Lat), lng = Number(m.Lng);
         bounds.push([lat, lng]);
+        const link = m.MapURL || ('https://maps.google.com/?q=' + lat + ',' + lng);
         const popup =
           '<strong>' + UI.escapeHtml(m.Name) + '</strong><br>' +
           UI.escapeHtml(m.District + '، ' + m.City) + '<br>' +
           'المصلون: ' + UI.fmtNum(m.Capacity) + '<br>' +
-          '<a href="https://maps.google.com/?q=' + lat + ',' + lng + '" target="_blank">فتح في خرائط Google</a>';
+          '<a href="' + UI.escapeHtml(link) + '" target="_blank">فتح في خرائط Google</a>';
         L.marker([lat, lng]).addTo(map).bindPopup(popup);
       });
       if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
@@ -142,9 +142,10 @@
         UI.el('div', { class: 'k', text: r[0] }), UI.el('div', { class: 'v', text: String(r[1] == null ? '—' : r[1]) })
       ]));
     });
-    if (row.Lat && row.Lng) {
+    var mapsLink = row.MapURL || ((row.Lat && row.Lng) ? ('https://maps.google.com/?q=' + row.Lat + ',' + row.Lng) : '');
+    if (mapsLink) {
       body.appendChild(UI.el('a', { class: 'btn btn-ghost btn-sm mt-16', target: '_blank',
-        href: 'https://maps.google.com/?q=' + row.Lat + ',' + row.Lng, text: '📍 فتح في الخرائط' }));
+        href: mapsLink, text: '📍 فتح في الخرائط' }));
     }
     if (row.Images) {
       const grid = UI.el('div', { class: 'image-grid' });

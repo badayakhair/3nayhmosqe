@@ -52,7 +52,7 @@ var SHEETS = {
   Mosques: {
     name: 'Mosques',
     columns: ['ID', 'Name', 'District', 'City', 'Lat', 'Lng', 'Capacity',
-              'Toilets', 'ACs', 'Courts', 'Notes', 'Images', 'CreatedAt', 'UpdatedAt']
+              'Toilets', 'ACs', 'Courts', 'Notes', 'Images', 'CreatedAt', 'UpdatedAt', 'MapURL']
   },
   Visits: {
     name: 'Visits',
@@ -679,11 +679,18 @@ function handleMosques_get(payload) {
 
 function handleMosques_create(payload, user) {
   requireFields_(payload, ['Name', 'District', 'City']);
+  var lat = payload.Lat || '', lng = payload.Lng || '';
+  var mapUrl = payload.MapURL || '';
+  if (mapUrl) {
+    var c = resolveMapUrl_(mapUrl);
+    if (c) { lat = c.lat; lng = c.lng; }
+  }
   var obj = {
     ID: genId_('MSQ'), Name: payload.Name, District: payload.District, City: payload.City,
-    Lat: payload.Lat || '', Lng: payload.Lng || '', Capacity: toNum_(payload.Capacity),
+    Lat: lat, Lng: lng, Capacity: toNum_(payload.Capacity),
     Toilets: toNum_(payload.Toilets), ACs: toNum_(payload.ACs), Courts: toNum_(payload.Courts),
-    Notes: payload.Notes || '', Images: payload.Images || '', CreatedAt: nowIso_(), UpdatedAt: nowIso_()
+    Notes: payload.Notes || '', Images: payload.Images || '', CreatedAt: nowIso_(), UpdatedAt: nowIso_(),
+    MapURL: mapUrl
   };
   insertRow_('Mosques', obj);
   audit_(user, 'create', 'Mosques', obj.ID);
@@ -694,11 +701,77 @@ function handleMosques_update(payload, user) {
   requireFields_(payload, ['id']);
   var row = findById_('Mosques', payload.id);
   if (!row) throw new Error('المسجد غير موجود.');
-  var patch = pick_(payload, ['Name','District','City','Lat','Lng','Capacity','Toilets','ACs','Courts','Notes','Images']);
+  var patch = pick_(payload, ['Name','District','City','Capacity','Toilets','ACs','Courts','Notes','Images']);
+  // إن أُرسل رابط خرائط، خزّنه واستخرج منه الإحداثيات تلقائياً
+  if (payload.MapURL !== undefined) {
+    patch.MapURL = payload.MapURL;
+    if (payload.MapURL) {
+      var c = resolveMapUrl_(payload.MapURL);
+      if (c) { patch.Lat = c.lat; patch.Lng = c.lng; }
+    } else {
+      patch.Lat = ''; patch.Lng = '';
+    }
+  }
+  // السماح بإدخال إحداثيات يدوية صريحة عند الحاجة
+  if (payload.Lat !== undefined) patch.Lat = payload.Lat;
+  if (payload.Lng !== undefined) patch.Lng = payload.Lng;
   patch.UpdatedAt = nowIso_();
   var updated = updateRow_('Mosques', row.__row, patch);
   audit_(user, 'update', 'Mosques', payload.id);
   return { item: updated };
+}
+
+/**
+ * استخراج الإحداثيات من رابط Google Maps.
+ * يدعم الروابط الكاملة (تحتوي الإحداثيات) والروابط المختصرة (maps.app.goo.gl /
+ * goo.gl) عبر تتبّع التحويل (redirect) وقراءة الرابط النهائي.
+ * يعيد { lat, lng } كنصوص، أو null إن تعذّر.
+ */
+function resolveMapUrl_(url) {
+  if (!url) return null;
+  var coords = extractCoords_(url);
+  if (coords) return coords;
+
+  // رابط مختصر: اتبع سلسلة التحويلات واستخرج الإحداثيات من كل وجهة
+  try {
+    var current = url;
+    for (var i = 0; i < 4; i++) {
+      var resp = UrlFetchApp.fetch(current, { followRedirects: false, muteHttpExceptions: true });
+      var code = resp.getResponseCode();
+      if (code >= 300 && code < 400) {
+        var headers = resp.getHeaders();
+        var loc = headers['Location'] || headers['location'];
+        if (!loc) break;
+        coords = extractCoords_(loc);
+        if (coords) return coords;
+        current = loc;
+      } else {
+        // وصلنا للوجهة النهائية: جرّب استخراج الإحداثيات من جسم الصفحة
+        coords = extractCoords_(resp.getContentText());
+        if (coords) return coords;
+        break;
+      }
+    }
+  } catch (e) { /* تجاهل أخطاء الشبكة */ }
+  return null;
+}
+
+/** البحث عن أول زوج إحداثيات (lat,lng) ضمن نص/رابط بصيغ Google Maps الشائعة. */
+function extractCoords_(text) {
+  if (!text) return null;
+  var patterns = [
+    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,        // .../@24.71,46.67,17z
+    /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,    // ?q=24.71,46.67
+    /[?&]ll=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,   // ?ll=24.71,46.67
+    /[?&]daddr=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,// ?daddr=24.71,46.67
+    /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,     // !3d24.71!4d46.67
+    /\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/         // /24.71,46.67
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var m = String(text).match(patterns[i]);
+    if (m) return { lat: m[1], lng: m[2] };
+  }
+  return null;
 }
 
 function handleMosques_delete(payload, user) {
