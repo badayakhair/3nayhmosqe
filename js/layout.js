@@ -16,6 +16,7 @@ window.Layout = (function () {
     { key: 'maintenance',   label: 'الصيانة',        icon: '🔧', href: 'maintenance.html' },
     { key: 'cleaning',      label: 'النظافة',        icon: '🧹', href: 'cleaning.html' },
     { key: 'assets',        label: 'الأصول',         icon: '📦', href: 'assets.html' },
+    { key: 'exports',       label: 'التقارير',       icon: '📄', href: 'exports.html' },
     { key: 'notifications', label: 'الإشعارات',      icon: '🔔', href: 'notifications.html' },
     { key: 'settings',      label: 'المستخدمون',     icon: '⚙️', href: 'settings.html', roles: ['admin'] }
   ];

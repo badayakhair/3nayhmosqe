@@ -54,7 +54,59 @@
         onEdit: function (r) { openForm(r); },
         onDelete: Auth.can(['admin']) ? confirmDelete : null
       }));
+
+      renderMap(data.items);
     } catch (err) { UI.emptyState(listWrap, err.message); }
+  }
+
+  /**
+   * خريطة تفاعلية أسفل القائمة تُظهر مواقع المساجد التي لها إحداثيات.
+   */
+  function renderMap(items) {
+    const geo = items.filter(function (m) {
+      return m.Lat !== '' && m.Lng !== '' && !isNaN(Number(m.Lat)) && !isNaN(Number(m.Lng));
+    });
+
+    const card = UI.el('div', { class: 'card mt-16' }, [
+      UI.el('div', { class: 'card-title', text: '🗺️ خريطة المساجد' })
+    ]);
+    page.appendChild(card);
+
+    if (typeof window.L === 'undefined') {
+      card.appendChild(UI.el('div', { class: 'text-muted', text: 'تعذّر تحميل مكتبة الخرائط (تحقق من الاتصال بالإنترنت).' }));
+      return;
+    }
+    if (!geo.length) {
+      card.appendChild(UI.el('div', { class: 'text-muted',
+        text: 'لا توجد مساجد بإحداثيات بعد. أضِف خط العرض (Lat) وخط الطول (Lng) لمسجد لإظهاره على الخريطة.' }));
+      return;
+    }
+
+    const mapDiv = UI.el('div', { class: 'map-container', id: 'mosques-map' });
+    card.appendChild(mapDiv);
+
+    // الإنشاء يحتاج أن يكون العنصر داخل DOM وله أبعاد
+    setTimeout(function () {
+      const map = L.map(mapDiv).setView([Number(geo[0].Lat), Number(geo[0].Lng)], 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap'
+      }).addTo(map);
+
+      const bounds = [];
+      geo.forEach(function (m) {
+        const lat = Number(m.Lat), lng = Number(m.Lng);
+        bounds.push([lat, lng]);
+        const popup =
+          '<strong>' + UI.escapeHtml(m.Name) + '</strong><br>' +
+          UI.escapeHtml(m.District + '، ' + m.City) + '<br>' +
+          'المصلون: ' + UI.fmtNum(m.Capacity) + '<br>' +
+          '<a href="https://maps.google.com/?q=' + lat + ',' + lng + '" target="_blank">فتح في خرائط Google</a>';
+        L.marker([lat, lng]).addTo(map).bindPopup(popup);
+      });
+      if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
+      // إصلاح أبعاد الخريطة بعد ظهورها
+      setTimeout(function () { map.invalidateSize(); }, 200);
+    }, 50);
   }
 
   function openForm(row) {
