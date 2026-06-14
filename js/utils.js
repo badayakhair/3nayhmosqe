@@ -56,6 +56,9 @@ window.UI = (function () {
   }
 
   /* ---- النوافذ المنبثقة (Modal) ---- */
+  // عداد المودالات المفتوحة — يضمن إزالة has-modal فقط حين لا يتبقى أي مودال
+  let _openModals = 0;
+
   function modal(title, bodyNode, opts) {
     opts = opts || {};
     const overlay = el('div', { class: 'modal-overlay' });
@@ -74,10 +77,17 @@ window.UI = (function () {
     overlay.appendChild(box);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
     document.body.appendChild(overlay);
+
+    // حجب طبقات Leaflet عند فتح المودال
+    _openModals++;
+    document.body.classList.add('has-modal');
+
     setTimeout(function () { overlay.classList.add('show'); }, 10);
 
     function close() {
       overlay.classList.remove('show');
+      _openModals = Math.max(0, _openModals - 1);
+      if (_openModals === 0) document.body.classList.remove('has-modal');
       setTimeout(function () { overlay.remove(); }, 200);
     }
     return { close: close, overlay: overlay, body: body };

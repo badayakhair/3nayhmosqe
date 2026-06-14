@@ -167,7 +167,17 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .line-chart svg { width: 100%; height: 160px; }
 
 /* خريطة المساجد (Leaflet) */
-.map-container { height: 420px; width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-top: 6px; }
+/*
+ * isolation:isolate + z-index:0 تُنشئ stacking context مستقل يحبس
+ * جميع طبقات Leaflet الداخلية (z-index 200-1000) بداخله، فلا تتجاوز المودال.
+ */
+.map-container {
+  height: 420px; width: 100%;
+  border-radius: var(--radius-sm); border: 1px solid var(--border); margin-top: 6px;
+  position: relative; z-index: 0; isolation: isolate;
+}
+/* احتواء إضافي عند فتح أي مودال — يضمن أن طبقات Leaflet لا تطفو */
+body.has-modal .leaflet-container { z-index: 0 !important; }
 .leaflet-popup-content { font-family: var(--font); direction: rtl; text-align: right; font-size: 13px; }
 
 /* الصور المرفقة */
