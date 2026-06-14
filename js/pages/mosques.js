@@ -109,10 +109,47 @@
     }, 50);
   }
 
+  /**
+   * استخراج الإحداثيات من رابط Google Maps على جانب العميل
+   * (نفس ترتيب الأولوية الموجود في extractCoords_ بـ Code.gs)
+   */
+  function extractCoordsFromUrl(url) {
+    if (!url) return null;
+    var patterns = [
+      /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+      /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+      /[?&]ll=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+      /[?&]daddr=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+      /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
+      /\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var m = url.match(patterns[i]);
+      if (m) return { lat: m[1], lng: m[2] };
+    }
+    return null;
+  }
+
+  /** هل الرابط مختصر (يحتاج redirect من الخادم)؟ */
+  function isShortMapUrl(url) {
+    return /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url);
+  }
+
   function openForm(row) {
     const isEdit = !!row;
     Components.formModal(isEdit ? 'تعديل مسجد' : 'إضافة مسجد', FIELDS, row || {}, async function (vals, m) {
       const payload = Object.assign({}, vals);
+      const mapUrl = (vals.MapURL || '').trim();
+
+      // استخراج الإحداثيات محلياً إن أمكن لتفادي بطء UrlFetchApp
+      if (mapUrl && !isShortMapUrl(mapUrl)) {
+        const coords = extractCoordsFromUrl(mapUrl);
+        if (coords) {
+          payload._clientLat = coords.lat;
+          payload._clientLng = coords.lng;
+        }
+      }
+
       if (isEdit) { payload.id = row.ID; await API.call('mosques.update', payload); }
       else { await API.call('mosques.create', payload); }
       m.close();

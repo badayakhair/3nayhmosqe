@@ -764,8 +764,13 @@ function handleMosques_create(payload, user) {
   var lat = payload.Lat || '', lng = payload.Lng || '';
   var mapUrl = payload.MapURL || '';
   if (mapUrl) {
-    var c = resolveMapUrl_(mapUrl);
-    if (c) { lat = c.lat; lng = c.lng; }
+    // الواجهة ترسل الإحداثيات مستخرجة محلياً إن أمكن (للروابط الكاملة) — نستخدمها مباشرة
+    if (payload._clientLat && payload._clientLng) {
+      lat = payload._clientLat; lng = payload._clientLng;
+    } else {
+      var c = resolveMapUrl_(mapUrl);
+      if (c) { lat = c.lat; lng = c.lng; }
+    }
   }
   var obj = {
     ID: genId_('MSQ'), Name: payload.Name, District: payload.District, City: payload.City,
@@ -789,8 +794,13 @@ function handleMosques_update(payload, user) {
   if (payload.MapURL !== undefined) {
     patch.MapURL = payload.MapURL;
     if (payload.MapURL) {
-      var c = resolveMapUrl_(payload.MapURL);
-      if (c) { patch.Lat = c.lat; patch.Lng = c.lng; }
+      // الواجهة ترسل الإحداثيات مستخرجة محلياً إن أمكن (للروابط الكاملة)
+      if (payload._clientLat && payload._clientLng) {
+        patch.Lat = payload._clientLat; patch.Lng = payload._clientLng;
+      } else {
+        var c = resolveMapUrl_(payload.MapURL);
+        if (c) { patch.Lat = c.lat; patch.Lng = c.lng; }
+      }
     } else {
       patch.Lat = ''; patch.Lng = '';
     }
@@ -857,11 +867,11 @@ function isAllowedMapHost_(url) {
 function extractCoords_(text) {
   if (!text) return null;
   var patterns = [
-    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,        // .../@24.71,46.67,17z
+    /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,     // !3d24.71!4d46.67  ← دبوس المكان الفعلي (أدق)
     /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,    // ?q=24.71,46.67
     /[?&]ll=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,   // ?ll=24.71,46.67
     /[?&]daddr=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,// ?daddr=24.71,46.67
-    /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,     // !3d24.71!4d46.67
+    /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,          // .../@24.71,46.67,17z ← مركز العرض فقط
     /\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/         // /24.71,46.67
   ];
   for (var i = 0; i < patterns.length; i++) {
