@@ -87,6 +87,8 @@ input, select, textarea { font-family: inherit; }
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* يحجر كل طبقات Leaflet الداخلية داخل هذا السياق */
+  isolation: isolate;
 }
 
 /* ===================== الشريط العلوي ===================== */

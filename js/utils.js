@@ -56,7 +56,6 @@ window.UI = (function () {
   }
 
   /* ---- النوافذ المنبثقة (Modal) ---- */
-  // عداد المودالات المفتوحة — يضمن إزالة has-modal فقط حين لا يتبقى أي مودال
   let _openModals = 0;
 
   function modal(title, bodyNode, opts) {
@@ -76,18 +75,23 @@ window.UI = (function () {
 
     overlay.appendChild(box);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
-    document.body.appendChild(overlay);
 
-    // حجب طبقات Leaflet عند فتح المودال
+    // إخفاء حاويات الخريطة برمجياً — الحل الوحيد المضمون لمنع طبقات Leaflet من الطفو
+    const maps = Array.prototype.slice.call(document.querySelectorAll('.map-container'));
+    maps.forEach(function (m) { m.style.visibility = 'hidden'; });
     _openModals++;
     document.body.classList.add('has-modal');
 
+    document.body.appendChild(overlay);
     setTimeout(function () { overlay.classList.add('show'); }, 10);
 
     function close() {
       overlay.classList.remove('show');
       _openModals = Math.max(0, _openModals - 1);
-      if (_openModals === 0) document.body.classList.remove('has-modal');
+      if (_openModals === 0) {
+        document.body.classList.remove('has-modal');
+        maps.forEach(function (m) { m.style.visibility = ''; });
+      }
       setTimeout(function () { overlay.remove(); }, 200);
     }
     return { close: close, overlay: overlay, body: body };
