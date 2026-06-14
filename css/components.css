@@ -107,7 +107,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(17,24,39,.5);
   display: flex; align-items: center; justify-content: center;
-  z-index: 100; opacity: 0; transition: opacity .2s; padding: 16px;
+  z-index: 2000; opacity: 0; transition: opacity .2s; padding: 16px;
 }
 .modal-overlay.show { opacity: 1; }
 .modal {
@@ -130,7 +130,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 
 /* ===================== التنبيهات (Toast) ===================== */
-.toast-container { position: fixed; top: 20px; inset-inline-start: 20px; z-index: 200; display: flex; flex-direction: column; gap: 10px; }
+.toast-container { position: fixed; top: 20px; inset-inline-start: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; }
 .toast {
   background: var(--text); color: #fff; padding: 12px 18px;
   border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
