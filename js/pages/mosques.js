@@ -115,8 +115,13 @@
    */
   function extractCoordsFromUrl(url) {
     if (!url) return null;
+    // !3d!4d يظهر مرتين في روابط الأماكن — آخر تطابق هو الموقع الفعلي من قاعدة Google
+    var pat = /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/g;
+    var last = null, m;
+    while ((m = pat.exec(url)) !== null) { last = m; }
+    if (last) return { lat: last[1], lng: last[2] };
+
     var patterns = [
-      /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,
       /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
       /[?&]ll=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
       /[?&]daddr=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,
@@ -124,8 +129,8 @@
       /\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/
     ];
     for (var i = 0; i < patterns.length; i++) {
-      var m = url.match(patterns[i]);
-      if (m) return { lat: m[1], lng: m[2] };
+      var r = url.match(patterns[i]);
+      if (r) return { lat: r[1], lng: r[2] };
     }
     return null;
   }
