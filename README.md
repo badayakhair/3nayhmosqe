@@ -40,17 +40,13 @@
 │       ├── maintenance.js · cleaning.js · assets.js
 │       └── notifications.js · settings.js
 │
-├── gas/                    # كود Google Apps Script (انسخه إلى محرر Apps Script)
-│   ├── APIDispatcher.gs    # 🚦 الموجّه الرئيسي (Router) — doGet/doPost
-│   ├── Config.gs           # مخطط قاعدة البيانات + القيم المرجعية
-│   ├── Utils.gs            # دوال الوصول للشيتات والمساعدة
-│   ├── Shared.gs           # دوال مشتركة بين الوحدات
-│   ├── Auth.gs             # المصادقة والجلسات
-│   ├── Dashboard.gs        # إحصائيات لوحة التحكم
-│   ├── Mosques.gs · Visits.gs · Reports.gs
-│   ├── Maintenance.gs · Cleaning.gs · Assets.gs
-│   ├── Notifications.gs · Users.gs
-│   └── Setup.gs            # تهيئة الشيتات + حساب المدير + بيانات تجريبية
+├── gas/                    # كود Google Apps Script
+│   └── Code.gs             # 🚦 الكود الكامل في ملف واحد — انسخه كله إلى محرر
+│                           #    Apps Script. مقسّم داخلياً إلى 15 قسماً معلّماً:
+│                           #    Config · Utils · Shared · APIDispatcher (Router) ·
+│                           #    Auth · Dashboard · Mosques · Visits · Reports ·
+│                           #    Maintenance · Cleaning · Assets · Notifications ·
+│                           #    Users · Setup
 │
 ├── DEPLOYMENT.md           # دليل النشر خطوة بخطوة
 ├── ROADMAP.md              # خطة التطوير طويلة المدى

@@ -14,19 +14,15 @@
 
 ## الخطوة 2 — إضافة كود Apps Script
 
-1. من داخل الـ Sheet: **الإضافات (Extensions) → Apps Script**.
-2. احذف ملف `Code.gs` الافتراضي.
-3. لكل ملف داخل مجلد `gas/` في هذا المستودع:
-   - أنشئ ملفاً جديداً بنفس الاسم (أيقونة **+ → Script**).
-   - انسخ محتوى الملف والصقه.
-4. الملفات المطلوبة (13 ملف):
-   `APIDispatcher` · `Config` · `Utils` · `Shared` · `Auth` · `Dashboard` ·
-   `Mosques` · `Visits` · `Reports` · `Maintenance` · `Cleaning` · `Assets` ·
-   `Notifications` · `Users` · `Setup`
-5. احفظ المشروع (💾).
+كل الكود في **ملف واحد** لتسهيل النسخ والتعديل:
 
-> 💡 بديل احترافي: استخدم [`clasp`](https://github.com/google/clasp) لرفع مجلد `gas/` دفعة واحدة:
-> `clasp clone <scriptId>` ثم انسخ `.gs` و `clasp push`.
+1. من داخل الـ Sheet: **الإضافات (Extensions) → Apps Script**.
+2. افتح ملف `Code.gs` الافتراضي وامسح محتواه بالكامل.
+3. انسخ **كامل** محتوى `gas/Code.gs` من هذا المستودع والصقه مكانه.
+4. احفظ المشروع (💾). انتهى — لا ملفات أخرى مطلوبة.
+
+> الملف مقسّم داخلياً إلى 15 قسماً معلّماً (Config, Router, Auth, الوحدات...).
+> استخدم **Ctrl+F** للتنقل بين الأقسام عند التعديل.
 
 ---
 
