@@ -4,6 +4,9 @@
 (function () {
   Layout.render('mosques');
   const page = UI.$('#page');
+  let allItems = [];
+  let searchQ = '';
+  let listWrap = null;
 
   // الحقول النصية للنموذج (الموقع يُدار عبر منتقي الخريطة التفاعلي بشكل منفصل)
   const TEXT_FIELDS = [
@@ -30,33 +33,59 @@
     return h;
   }
 
+  const columns = [
+    { key: 'Name', label: 'اسم المسجد' },
+    { key: 'District', label: 'الحي' },
+    { key: 'City', label: 'المدينة' },
+    { key: 'Capacity', label: 'المصلون', render: function (r) { return UI.fmtNum(r.Capacity); } },
+    { key: 'Toilets', label: 'دورات المياه' },
+    { key: 'ACs', label: 'المكيفات' }
+  ];
+
+  function renderList() {
+    if (!listWrap) return;
+    const q = searchQ.trim().toLowerCase();
+    const items = q ? allItems.filter(function (r) {
+      return (r.Name || '').toLowerCase().indexOf(q) > -1 ||
+             (r.District || '').toLowerCase().indexOf(q) > -1 ||
+             (r.City || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Notes || '').toLowerCase().indexOf(q) > -1;
+    }) : allItems;
+
+    listWrap.innerHTML = '';
+    if (!items.length) {
+      UI.emptyState(listWrap, q ? 'لا توجد نتائج مطابقة.' : 'لا توجد مساجد بعد. ابدأ بإضافة مسجد.');
+      return;
+    }
+    listWrap.appendChild(Components.table(columns, items, {
+      onView: viewDetail,
+      onEdit: Auth.cap('mosques.edit') ? function (r) { openForm(r); } : null,
+      onDelete: Auth.cap('mosques.delete') ? confirmDelete : null
+    }));
+    listWrap.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:8px;text-align:start',
+      text: 'إجمالي المساجد: ' + items.length }));
+  }
+
   async function load() {
     page.innerHTML = '';
     page.appendChild(header());
-    const listWrap = UI.el('div');
+
+    const toolbar = UI.el('div', { class: 'toolbar' });
+    const searchInp = UI.el('input', { class: 'input', type: 'search',
+      placeholder: 'بحث بالاسم أو الحي أو المدينة…', value: searchQ });
+    searchInp.addEventListener('input', function () { searchQ = this.value; renderList(); });
+    toolbar.appendChild(searchInp);
+    page.appendChild(toolbar);
+
+    listWrap = UI.el('div');
     page.appendChild(listWrap);
     UI.showLoading(listWrap);
 
     try {
       const data = await API.call('mosques.list', {});
-      if (!data.items.length) { UI.emptyState(listWrap, 'لا توجد مساجد بعد. ابدأ بإضافة مسجد.'); return; }
-
-      const columns = [
-        { key: 'Name', label: 'اسم المسجد' },
-        { key: 'District', label: 'الحي' },
-        { key: 'City', label: 'المدينة' },
-        { key: 'Capacity', label: 'المصلون', render: function (r) { return UI.fmtNum(r.Capacity); } },
-        { key: 'Toilets', label: 'دورات المياه' },
-        { key: 'ACs', label: 'المكيفات' }
-      ];
-      listWrap.innerHTML = '';
-      listWrap.appendChild(Components.table(columns, data.items, {
-        onView: viewDetail,
-        onEdit: Auth.cap('mosques.edit') ? function (r) { openForm(r); } : null,
-        onDelete: Auth.cap('mosques.delete') ? confirmDelete : null
-      }));
-
-      renderMap(data.items);
+      allItems = data.items;
+      renderList();
+      renderMap(allItems);
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }
 
@@ -279,7 +308,7 @@
         else { await API.call('mosques.create', payload); }
         m.close();
         UI.toast(isEdit ? 'تم تحديث المسجد' : 'تمت إضافة المسجد', 'success');
-        load();
+        allItems = []; load();
       } catch (err) {
         UI.toast(err.message, 'error');
         saveBtn.disabled = false; saveBtn.textContent = 'حفظ';
@@ -290,7 +319,7 @@
 
   function confirmDelete(row) {
     UI.confirm('حذف المسجد "' + row.Name + '"؟', async function () {
-      try { await API.call('mosques.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); load(); }
+      try { await API.call('mosques.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); allItems = []; load(); }
       catch (err) { UI.toast(err.message, 'error'); }
     });
   }

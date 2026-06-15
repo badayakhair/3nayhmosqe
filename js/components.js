@@ -19,7 +19,6 @@ window.Components = (function () {
   function table(columns, rows, actions) {
     actions = actions || {};
     const showActions = actions.onView || actions.onEdit || actions.onDelete;
-    const canWrite = !Auth.isReadOnly();
 
     const thead = UI.el('thead', {}, [
       UI.el('tr', {}, columns.map(function (c) { return UI.el('th', { text: c.label }); })
@@ -40,8 +39,8 @@ window.Components = (function () {
         const cell = UI.el('td');
         const wrap = UI.el('div', { class: 'row-actions' });
         if (actions.onView) wrap.appendChild(UI.el('button', { class: 'btn btn-ghost btn-sm', text: 'عرض', onclick: function () { actions.onView(row); } }));
-        if (actions.onEdit && canWrite) wrap.appendChild(UI.el('button', { class: 'btn btn-ghost btn-sm', text: 'تعديل', onclick: function () { actions.onEdit(row); } }));
-        if (actions.onDelete && canWrite) wrap.appendChild(UI.el('button', { class: 'btn btn-danger btn-sm', text: 'حذف', onclick: function () { actions.onDelete(row); } }));
+        if (actions.onEdit) wrap.appendChild(UI.el('button', { class: 'btn btn-ghost btn-sm', text: 'تعديل', onclick: function () { actions.onEdit(row); } }));
+        if (actions.onDelete) wrap.appendChild(UI.el('button', { class: 'btn btn-danger btn-sm', text: 'حذف', onclick: function () { actions.onDelete(row); } }));
         cell.appendChild(wrap);
         tds.push(cell);
       }

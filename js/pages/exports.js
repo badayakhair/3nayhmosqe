@@ -187,12 +187,21 @@
     const f = { mosqueId: mosqueId };
     if (from) f.from = from;
     if (to) f.to = to;
-    const m = (await API.call('mosques.get', { id: mosqueId })).item;
-    const reports = (await API.call('reports.list', f)).items;
-    const maint = (await API.call('maintenance.list', f)).items;
-    const visits = (await API.call('visits.list', f)).items;
-    const assets = (await API.call('assets.list', { mosqueId: mosqueId })).items;
-    return { kind: 'mosque', m: m, reports: reports, maint: maint, visits: visits, assets: assets };
+    const results = await Promise.all([
+      API.call('mosques.get', { id: mosqueId }),
+      API.call('reports.list', f),
+      API.call('maintenance.list', f),
+      API.call('visits.list', f),
+      API.call('assets.list', { mosqueId: mosqueId })
+    ]);
+    return {
+      kind: 'mosque',
+      m: results[0].item,
+      reports: results[1].items,
+      maint: results[2].items,
+      visits: results[3].items,
+      assets: results[4].items
+    };
   }
 
   /* ---------------- اختيار الأعمدة ---------------- */

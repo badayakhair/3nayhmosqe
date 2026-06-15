@@ -159,6 +159,7 @@ input, select, textarea { font-family: inherit; }
   margin-bottom: 18px;
 }
 .toolbar .input, .toolbar .select { min-width: 160px; }
+.toolbar input[type="search"] { min-width: 220px; flex: 1; }
 .spacer { flex: 1; }
 
 /* ===================== التجاوب ===================== */

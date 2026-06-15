@@ -844,14 +844,21 @@ function handleDashboard_stats(payload, user) {
   var visits = readRows_('Visits');
   var maintenance = readRows_('Maintenance');
   var assets = readRows_('Assets');
+  var cleaning = readRows_('Cleaning');
 
+  var nowMs = Date.now();
   var now = new Date();
   var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  var DAY = 24 * 3600 * 1000;
 
   var openReports = reports.filter(function (r) { return r.Status !== 'مكتمل'; });
   var criticalReports = reports.filter(function (r) { return r.Priority === 'حرجة' && r.Status !== 'مكتمل'; });
   var visitsThisMonth = visits.filter(function (v) { return new Date(v.Date).getTime() >= monthStart; });
   var maintThisMonth = maintenance.filter(function (m) { return new Date(m.Date).getTime() >= monthStart; });
+
+  var overdueReports = openReports.filter(function (r) { return r.CreatedAt && (nowMs - new Date(r.CreatedAt).getTime()) > 7 * DAY; });
+  var overdueCleaning = cleaning.filter(function (c) { return c.NextVisit && new Date(c.NextVisit).getTime() < nowMs; });
+  var overdueMaintAssets = assets.filter(function (a) { return a.LastMaintDate && (nowMs - new Date(a.LastMaintDate).getTime()) > 180 * DAY; });
 
   var byStatus = {};
   ENUMS.reportStatus.forEach(function (s) { byStatus[s] = 0; });
@@ -874,7 +881,10 @@ function handleDashboard_stats(payload, user) {
       visitsThisMonth: visitsThisMonth.length,
       maintenanceCount: maintenance.length,
       maintenanceThisMonth: maintThisMonth.length,
-      assets: assets.length
+      assets: assets.length,
+      overdueReports: overdueReports.length,
+      overdueCleaning: overdueCleaning.length,
+      overdueMaintAssets: overdueMaintAssets.length
     },
     charts: {
       reportsByStatus: byStatus,

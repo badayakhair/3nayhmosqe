@@ -44,6 +44,12 @@
     { icon: '🔧', label: 'أعمال الصيانة', value: c.maintenanceCount, cls: '' },
     { icon: '📦', label: 'إجمالي الأصول', value: c.assets, cls: 'info' }
   ];
+  // بطاقات التنبيهات (تُعرض فقط عند وجود مشكلات)
+  if (c.overdueReports > 0 || c.overdueCleaning > 0 || c.overdueMaintAssets > 0) {
+    cards.push({ icon: '🔴', label: 'بلاغات متأخرة > 7 أيام', value: c.overdueReports || 0, cls: 'danger' });
+    if (c.overdueCleaning > 0)    cards.push({ icon: '🧹', label: 'نظافة متأخرة', value: c.overdueCleaning, cls: 'warn' });
+    if (c.overdueMaintAssets > 0) cards.push({ icon: '⚙️', label: 'أصول تحتاج صيانة دورية', value: c.overdueMaintAssets, cls: 'warn' });
+  }
   const grid = UI.el('div', { class: 'stats-grid' });
   cards.forEach(function (card) {
     grid.appendChild(UI.el('div', { class: 'stat-card' }, [

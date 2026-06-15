@@ -5,6 +5,9 @@
   Layout.render('maintenance');
   const page = UI.$('#page');
   let mosques = [];
+  let allItems = [];
+  let searchQ = '';
+  let listWrap = null;
 
   function fields() {
     return [
@@ -17,6 +20,41 @@
     ];
   }
 
+  const columns = [
+    { key: 'Date', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.Date); } },
+    { key: 'MosqueName', label: 'المسجد' },
+    { key: 'Contractor', label: 'المقاول' },
+    { key: 'Cost', label: 'التكلفة', render: function (r) { return UI.fmtNum(r.Cost) + ' ريال'; } },
+    { key: 'Description', label: 'الوصف', render: function (r) { return UI.escapeHtml((r.Description || '').slice(0, 40)); } }
+  ];
+
+  function renderList() {
+    if (!listWrap) return;
+    const q = searchQ.trim().toLowerCase();
+    const items = q ? allItems.filter(function (r) {
+      return (r.MosqueName || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Contractor || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Description || '').toLowerCase().indexOf(q) > -1;
+    }) : allItems;
+
+    if (!items.length) {
+      UI.emptyState(listWrap, q ? 'لا توجد نتائج مطابقة للبحث.' : 'لا توجد أعمال صيانة مسجّلة.');
+      return;
+    }
+    const total = items.reduce(function (s, r) { return s + (Number(r.Cost) || 0); }, 0);
+    listWrap.innerHTML = '';
+    listWrap.appendChild(UI.el('div', { class: 'card', style: 'margin-bottom:16px' }, [
+      UI.el('span', { class: 'text-muted', text: 'إجمالي تكاليف الصيانة المعروضة: ' }),
+      UI.el('strong', { text: UI.fmtNum(total) + ' ريال' }),
+      UI.el('span', { class: 'text-muted', style: 'margin-inline-start:16px', text: '(' + items.length + ' سجل)' })
+    ]));
+    listWrap.appendChild(Components.table(columns, items, {
+      onView: viewDetail,
+      onEdit: Auth.cap('maintenance.edit') ? function (r) { openForm(r); } : null,
+      onDelete: Auth.cap('maintenance.delete') ? confirmDelete : null
+    }));
+  }
+
   async function load() {
     page.innerHTML = '';
     const h = UI.el('div', { class: 'page-header' }, [
@@ -27,33 +65,25 @@
     }
     page.appendChild(h);
 
-    const listWrap = UI.el('div');
+    const toolbar = UI.el('div', { class: 'toolbar' });
+    const searchInp = UI.el('input', { class: 'input', type: 'search',
+      placeholder: 'بحث بالمسجد أو المقاول أو الوصف…', value: searchQ });
+    searchInp.addEventListener('input', function () { searchQ = this.value; renderList(); });
+    toolbar.appendChild(searchInp);
+    page.appendChild(toolbar);
+
+    listWrap = UI.el('div');
     page.appendChild(listWrap);
     UI.showLoading(listWrap);
 
     try {
-      if (!mosques.length) mosques = await Components.mosqueOptions();
-      const data = await API.call('maintenance.list', {});
-      if (!data.items.length) { UI.emptyState(listWrap, 'لا توجد أعمال صيانة مسجّلة.'); return; }
-
-      const total = data.items.reduce(function (s, r) { return s + (Number(r.Cost) || 0); }, 0);
-      listWrap.appendChild(UI.el('div', { class: 'card', style: 'margin-bottom:16px' }, [
-        UI.el('span', { class: 'text-muted', text: 'إجمالي تكاليف الصيانة: ' }),
-        UI.el('strong', { text: UI.fmtNum(total) + ' ريال' })
-      ]));
-
-      const columns = [
-        { key: 'Date', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.Date); } },
-        { key: 'MosqueName', label: 'المسجد' },
-        { key: 'Contractor', label: 'المقاول' },
-        { key: 'Cost', label: 'التكلفة', render: function (r) { return UI.fmtNum(r.Cost) + ' ريال'; } },
-        { key: 'Description', label: 'الوصف', render: function (r) { return UI.escapeHtml((r.Description || '').slice(0, 40)); } }
-      ];
-      listWrap.appendChild(Components.table(columns, data.items, {
-        onView: viewDetail,
-        onEdit: Auth.cap('maintenance.edit') ? function (r) { openForm(r); } : null,
-        onDelete: Auth.cap('maintenance.delete') ? confirmDelete : null
-      }));
+      const results = await Promise.all([
+        mosques.length ? Promise.resolve(mosques) : Components.mosqueOptions(),
+        API.call('maintenance.list', {})
+      ]);
+      if (!mosques.length) mosques = results[0];
+      allItems = results[1].items;
+      renderList();
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }
 
@@ -65,13 +95,13 @@
       else { await API.call('maintenance.create', payload); }
       m.close();
       UI.toast(isEdit ? 'تم التحديث' : 'تم التسجيل', 'success');
-      load();
+      allItems = []; load();
     });
   }
 
   function confirmDelete(row) {
     UI.confirm('حذف عمل الصيانة هذا؟', async function () {
-      try { await API.call('maintenance.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); load(); }
+      try { await API.call('maintenance.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); allItems = []; load(); }
       catch (err) { UI.toast(err.message, 'error'); }
     });
   }

@@ -5,6 +5,9 @@
   Layout.render('visits');
   const page = UI.$('#page');
   let mosques = [];
+  let allItems = [];
+  let searchQ = '';
+  let listWrap = null;
 
   const RATINGS = [{ value: '', label: '— غير مقيّم —' }, 1, 2, 3, 4, 5];
 
@@ -22,6 +25,38 @@
     ];
   }
 
+  const columns = [
+    { key: 'Date', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.Date); } },
+    { key: 'MosqueName', label: 'المسجد' },
+    { key: 'Inspector', label: 'المراقب' },
+    { key: 'CleanRating', label: 'النظافة', render: function (r) { return UI.ratingStars(r.CleanRating); } },
+    { key: 'MaintRating', label: 'الصيانة', render: function (r) { return UI.ratingStars(r.MaintRating); } },
+    { key: 'ACRating', label: 'التكييف', render: function (r) { return UI.ratingStars(r.ACRating); } }
+  ];
+
+  function renderList() {
+    if (!listWrap) return;
+    const q = searchQ.trim().toLowerCase();
+    const items = q ? allItems.filter(function (r) {
+      return (r.MosqueName || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Inspector || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Notes || '').toLowerCase().indexOf(q) > -1;
+    }) : allItems;
+
+    if (!items.length) {
+      UI.emptyState(listWrap, q ? 'لا توجد نتائج مطابقة للبحث.' : 'لا توجد زيارات مسجّلة بعد.');
+      return;
+    }
+    listWrap.innerHTML = '';
+    listWrap.appendChild(Components.table(columns, items, {
+      onView: viewDetail,
+      onEdit: Auth.cap('visits.edit') ? function (r) { openForm(r); } : null,
+      onDelete: Auth.cap('visits.delete') ? confirmDelete : null
+    }));
+    listWrap.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:8px;text-align:start',
+      text: 'إجمالي النتائج: ' + items.length }));
+  }
+
   async function load() {
     page.innerHTML = '';
     const h = UI.el('div', { class: 'page-header' }, [
@@ -32,29 +67,25 @@
     }
     page.appendChild(h);
 
-    const listWrap = UI.el('div');
+    const toolbar = UI.el('div', { class: 'toolbar' });
+    const searchInp = UI.el('input', { class: 'input', type: 'search',
+      placeholder: 'بحث بالمسجد أو المراقب أو الملاحظات…', value: searchQ });
+    searchInp.addEventListener('input', function () { searchQ = this.value; renderList(); });
+    toolbar.appendChild(searchInp);
+    page.appendChild(toolbar);
+
+    listWrap = UI.el('div');
     page.appendChild(listWrap);
     UI.showLoading(listWrap);
 
     try {
-      if (!mosques.length) mosques = await Components.mosqueOptions();
-      const data = await API.call('visits.list', {});
-      if (!data.items.length) { UI.emptyState(listWrap, 'لا توجد زيارات مسجّلة بعد.'); return; }
-
-      const columns = [
-        { key: 'Date', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.Date); } },
-        { key: 'MosqueName', label: 'المسجد' },
-        { key: 'Inspector', label: 'المراقب' },
-        { key: 'CleanRating', label: 'النظافة', render: function (r) { return UI.ratingStars(r.CleanRating); } },
-        { key: 'MaintRating', label: 'الصيانة', render: function (r) { return UI.ratingStars(r.MaintRating); } },
-        { key: 'ACRating', label: 'التكييف', render: function (r) { return UI.ratingStars(r.ACRating); } }
-      ];
-      listWrap.innerHTML = '';
-      listWrap.appendChild(Components.table(columns, data.items, {
-        onView: viewDetail,
-        onEdit: Auth.cap('visits.edit') ? function (r) { openForm(r); } : null,
-        onDelete: Auth.cap('visits.delete') ? confirmDelete : null
-      }));
+      const results = await Promise.all([
+        mosques.length ? Promise.resolve(mosques) : Components.mosqueOptions(),
+        API.call('visits.list', {})
+      ]);
+      if (!mosques.length) mosques = results[0];
+      allItems = results[1].items;
+      renderList();
     } catch (err) { UI.emptyState(listWrap, err.message); }
   }
 
@@ -66,13 +97,14 @@
       else { await API.call('visits.create', payload); }
       m.close();
       UI.toast(isEdit ? 'تم تحديث الزيارة' : 'تم تسجيل الزيارة', 'success');
+      allItems = [];
       load();
     });
   }
 
   function confirmDelete(row) {
     UI.confirm('حذف هذه الزيارة؟', async function () {
-      try { await API.call('visits.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); load(); }
+      try { await API.call('visits.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); allItems = []; load(); }
       catch (err) { UI.toast(err.message, 'error'); }
     });
   }

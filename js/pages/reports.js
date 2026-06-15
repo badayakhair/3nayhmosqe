@@ -5,7 +5,10 @@
   Layout.render('reports');
   const page = UI.$('#page');
   let mosques = [];
+  let allItems = [];
   let filters = {};
+  let searchQ = '';
+  let listWrap = null;
 
   function fields() {
     return [
@@ -18,6 +21,52 @@
     ];
   }
 
+  const columns = [
+    { key: 'CreatedAt', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.CreatedAt); } },
+    { key: 'MosqueName', label: 'المسجد' },
+    { key: 'Type', label: 'النوع' },
+    { key: 'Priority', label: 'الأولوية', render: function (r) { return UI.priorityBadge(r.Priority); } },
+    { key: 'Description', label: 'الوصف', render: function (r) { return UI.escapeHtml((r.Description || '').slice(0, 40)) + ((r.Description || '').length > 40 ? '…' : ''); } },
+    { key: 'Status', label: 'الحالة', render: function (r) { return UI.statusBadge(r.Status); } }
+  ];
+
+  function renderList() {
+    if (!listWrap) return;
+    const q = searchQ.trim().toLowerCase();
+    const items = q ? allItems.filter(function (r) {
+      return (r.MosqueName || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Description || '').toLowerCase().indexOf(q) > -1 ||
+             (r.Type || '').toLowerCase().indexOf(q) > -1;
+    }) : allItems;
+
+    if (!items.length) {
+      UI.emptyState(listWrap, q ? 'لا توجد نتائج مطابقة للبحث.' : 'لا توجد بلاغات مطابقة.');
+      return;
+    }
+    listWrap.innerHTML = '';
+    listWrap.appendChild(Components.table(columns, items, {
+      onView: viewDetail,
+      onEdit: Auth.cap('reports.edit') ? function (r) { openForm(r); } : null,
+      onDelete: Auth.cap('reports.delete') ? confirmDelete : null
+    }));
+    listWrap.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:8px;text-align:start',
+      text: 'إجمالي النتائج: ' + items.length }));
+  }
+
+  function filterSelect(key, allLabel, options) {
+    const sel = UI.el('select', { class: 'select', onchange: function () {
+      if (this.value) filters[key] = this.value; else delete filters[key];
+      allItems = []; load();
+    } });
+    sel.appendChild(UI.el('option', { value: '', text: allLabel }));
+    options.forEach(function (o) {
+      const opt = UI.el('option', { value: o, text: o });
+      if (filters[key] === o) opt.setAttribute('selected', 'true');
+      sel.appendChild(opt);
+    });
+    return sel;
+  }
+
   async function load() {
     page.innerHTML = '';
     const h = UI.el('div', { class: 'page-header' }, [
@@ -28,48 +77,29 @@
     }
     page.appendChild(h);
 
-    // أدوات الفلترة
     const toolbar = UI.el('div', { class: 'toolbar' });
+    const searchInp = UI.el('input', { class: 'input', type: 'search',
+      placeholder: 'بحث بالمسجد أو الوصف أو النوع…', value: searchQ });
+    searchInp.addEventListener('input', function () { searchQ = this.value; renderList(); });
+    toolbar.appendChild(searchInp);
     toolbar.appendChild(filterSelect('status', 'كل الحالات', ENUMS.reportStatus));
     toolbar.appendChild(filterSelect('priority', 'كل الأولويات', ENUMS.reportPriority));
     toolbar.appendChild(filterSelect('type', 'كل الأنواع', ENUMS.reportTypes));
     page.appendChild(toolbar);
 
-    const listWrap = UI.el('div');
+    listWrap = UI.el('div');
     page.appendChild(listWrap);
     UI.showLoading(listWrap);
 
     try {
-      if (!mosques.length) mosques = await Components.mosqueOptions();
-      const data = await API.call('reports.list', filters);
-      if (!data.items.length) { UI.emptyState(listWrap, 'لا توجد بلاغات مطابقة.'); return; }
-
-      const columns = [
-        { key: 'CreatedAt', label: 'التاريخ', render: function (r) { return UI.fmtDate(r.CreatedAt); } },
-        { key: 'MosqueName', label: 'المسجد' },
-        { key: 'Type', label: 'النوع' },
-        { key: 'Priority', label: 'الأولوية', render: function (r) { return UI.priorityBadge(r.Priority); } },
-        { key: 'Description', label: 'الوصف', render: function (r) { return UI.escapeHtml((r.Description || '').slice(0, 40)) + ((r.Description || '').length > 40 ? '…' : ''); } },
-        { key: 'Status', label: 'الحالة', render: function (r) { return UI.statusBadge(r.Status); } }
-      ];
-      listWrap.innerHTML = '';
-      listWrap.appendChild(Components.table(columns, data.items, {
-        onView: viewDetail,
-        onEdit: Auth.cap('reports.edit') ? function (r) { openForm(r); } : null,
-        onDelete: Auth.cap('reports.delete') ? confirmDelete : null
-      }));
+      const results = await Promise.all([
+        mosques.length ? Promise.resolve(mosques) : Components.mosqueOptions(),
+        API.call('reports.list', filters)
+      ]);
+      if (!mosques.length) mosques = results[0];
+      allItems = results[1].items;
+      renderList();
     } catch (err) { UI.emptyState(listWrap, err.message); }
-  }
-
-  function filterSelect(key, allLabel, options) {
-    const sel = UI.el('select', { class: 'select', onchange: function () { if (this.value) filters[key] = this.value; else delete filters[key]; load(); } });
-    sel.appendChild(UI.el('option', { value: '', text: allLabel }));
-    options.forEach(function (o) {
-      const opt = UI.el('option', { value: o, text: o });
-      if (filters[key] === o) opt.setAttribute('selected', 'true');
-      sel.appendChild(opt);
-    });
-    return sel;
   }
 
   function openForm(row) {
@@ -80,13 +110,13 @@
       else { await API.call('reports.create', payload); }
       m.close();
       UI.toast(isEdit ? 'تم تحديث البلاغ' : 'تم إنشاء البلاغ', 'success');
-      load();
+      allItems = []; load();
     });
   }
 
   function confirmDelete(row) {
     UI.confirm('حذف هذا البلاغ؟', async function () {
-      try { await API.call('reports.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); load(); }
+      try { await API.call('reports.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); allItems = []; load(); }
       catch (err) { UI.toast(err.message, 'error'); }
     });
   }
@@ -101,7 +131,6 @@
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'أنشأه' }), UI.el('div', { class: 'v', text: row.CreatedBy })]));
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'تاريخ الإنشاء' }), UI.el('div', { class: 'v', text: UI.fmtDateTime(row.CreatedAt) })]));
 
-    // إدارة الحالة (حسب صلاحية تغيير حالة البلاغ)
     const statusRow = UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'الحالة' })]);
     if (Auth.cap('reports.status')) {
       const sel = UI.el('select', { class: 'select' });
@@ -113,7 +142,7 @@
       const v = UI.el('div', { class: 'v' }, [sel, UI.el('button', {
         class: 'btn btn-primary btn-sm', text: 'تحديث', style: 'margin-inline-start:8px',
         onclick: async function () {
-          try { await API.call('reports.updateStatus', { id: row.ID, status: sel.value }); UI.toast('تم تحديث الحالة', 'success'); }
+          try { await API.call('reports.updateStatus', { id: row.ID, status: sel.value }); UI.toast('تم تحديث الحالة', 'success'); allItems = []; }
           catch (err) { UI.toast(err.message, 'error'); }
         }
       })]);
