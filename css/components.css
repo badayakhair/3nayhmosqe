@@ -44,8 +44,12 @@
 .stat-icon.warn { background: #fef3e2; }
 .stat-icon.info { background: #e6effd; }
 .stat-body { min-width: 0; }
-.stat-value { font-size: 34px; font-weight: 800; line-height: 1.05; }
-.stat-label { font-size: 14px; color: var(--text-muted); margin-top: 2px; }
+.stat-value {
+  font-size: 32px; font-weight: 700; line-height: 1.05;
+  letter-spacing: -.5px;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+}
+.stat-label { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
 
 /* شبكة المخططات */
 .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }
@@ -79,6 +83,11 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .badge-med { background: #fef3e2; color: #b45309; }
 .badge-high { background: #ffedd5; color: #c2410c; }
 .badge-critical { background: #fde8e8; color: #b91c1c; }
+/* شارات دلالية عامة */
+.badge-info { background: #e6effd; color: #1d4ed8; }
+.badge-success { background: #dcfce7; color: #15803d; }
+.badge-warn { background: #fef3e2; color: #b45309; }
+.badge-danger { background: #fde8e8; color: #b91c1c; }
 
 /* التقييم بالنجوم */
 .rating .star { color: #d1d5db; font-size: 14px; }
@@ -216,6 +225,10 @@ body.has-modal .leaflet-container { z-index: 0 !important; }
 .rep-org { font-size: 14px; color: var(--primary); font-weight: 700; }
 .rep-title { font-size: 24px; margin: 8px 0; }
 .rep-meta { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; font-size: 12px; color: #555; }
+.rep-intro {
+  background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #374151; line-height: 1.8;
+}
 .rep-section { font-size: 16px; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--primary-light); color: var(--primary-dark); }
 .rep-count, .rep-total { font-size: 13px; margin: 8px 0; }
 .rep-total strong { color: var(--primary); }
@@ -258,3 +271,55 @@ body.has-modal .leaflet-container { z-index: 0 !important; }
 .badge-exec    { background: #e8f5e9; color: #2e7d32; }
 .badge-done    { background: #e0f2f1; color: #00695c; }
 .badge-paused  { background: #fce4ec; color: #c62828; }
+
+/* ===================== التنبيهات داخل الصفحة (Alerts) ===================== */
+.alert {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600;
+}
+.alert-warn   { background: #fef3e2; color: #92400e; border: 1px solid #fcd9a5; }
+.alert-danger { background: #fde8e8; color: #991b1b; border: 1px solid #f8c4c4; }
+.alert-info   { background: #e6effd; color: #1e40af; border: 1px solid #c2d7fb; }
+.alert-success{ background: #dcfce7; color: #166534; border: 1px solid #b3edc6; }
+
+/* شريط تنبيهات المهام المتأخرة في لوحة التحكم */
+.alert-strip { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+.alert .alert-link {
+  margin-inline-start: auto; font-weight: 700; text-decoration: underline;
+  white-space: nowrap; font-size: 12px;
+}
+
+/* ===================== التحديث السريع لتقدّم المشروع ===================== */
+.qp-pct-display {
+  font-size: 40px; font-weight: 800; text-align: center; color: var(--primary);
+  letter-spacing: -1px; font-variant-numeric: tabular-nums; margin-bottom: 4px;
+}
+.qp-range {
+  width: 100%; accent-color: var(--primary); height: 6px; cursor: pointer; margin: 8px 0 4px;
+}
+.qp-quickrow { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 6px 0 2px; }
+.qp-chip {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+  padding: 4px 12px; font-size: 12px; font-weight: 700; color: var(--text-muted);
+}
+.qp-chip:hover { border-color: var(--primary); color: var(--primary); }
+
+/* شريط التقدم القابل للنقر داخل الجداول */
+.progress-wrap.clickable { cursor: pointer; }
+.progress-wrap.clickable:hover .progress-track { box-shadow: 0 0 0 2px rgba(31,111,84,.18); }
+
+/* لوحة مؤشرات مالية/تشغيلية مصغّرة (KPI strip) */
+.kpi-strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px; margin-bottom: 26px;
+}
+.kpi-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; box-shadow: var(--shadow);
+}
+.kpi-box .kpi-val {
+  font-size: 24px; font-weight: 800; color: var(--primary);
+  font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+}
+.kpi-box .kpi-lbl { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }

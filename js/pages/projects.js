@@ -38,10 +38,13 @@
     return '<span class="badge ' + (map[status] || '') + '">' + UI.escapeHtml(status || '—') + '</span>';
   }
 
-  function progressBar(pct) {
+  function progressBar(pct, pid) {
     const p = Math.min(100, Math.max(0, Number(pct) || 0));
     const color = p === 100 ? 'var(--success)' : p >= 60 ? 'var(--primary)' : p >= 30 ? 'var(--warn)' : 'var(--danger)';
-    return '<div class="progress-wrap">' +
+    const canEdit = pid && Auth.cap('projects.edit');
+    const cls = 'progress-wrap' + (canEdit ? ' clickable' : '');
+    const attrs = canEdit ? ' data-pid="' + UI.escapeHtml(pid) + '" title="انقر لتحديث نسبة الإنجاز"' : '';
+    return '<div class="' + cls + '"' + attrs + '>' +
       '<div class="progress-track"><div class="progress-fill" style="width:' + p + '%;background:' + color + '"></div></div>' +
       '<span class="progress-pct">' + p + '%</span></div>';
   }
@@ -57,7 +60,7 @@
       }
     },
     { key: 'Phase', label: 'المرحلة' },
-    { key: 'CompletionPct', label: 'الإنجاز', render: function (r) { return progressBar(r.CompletionPct); } }
+    { key: 'CompletionPct', label: 'الإنجاز', render: function (r) { return progressBar(r.CompletionPct, r.ID); } }
   ];
 
   function renderList() {
@@ -82,6 +85,14 @@
     }));
     listWrap.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:12px;margin-top:8px;text-align:start',
       text: 'إجمالي المشاريع: ' + items.length }));
+
+    // تحديث سريع لنسبة الإنجاز بالنقر على شريط التقدّم (دون فتح نموذج التعديل الكامل)
+    listWrap.querySelectorAll('.progress-wrap.clickable[data-pid]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        const row = items.find(function (r) { return String(r.ID) === String(el.getAttribute('data-pid')); });
+        if (row) quickProgress(row);
+      });
+    });
   }
 
   function filterSelect(key, allLabel, options) {
@@ -144,6 +155,72 @@
     });
   }
 
+  /**
+   * نافذة مركّزة لتحديث تقدّم المشروع بسرعة: نسبة الإنجاز + الحالة + المرحلة فقط.
+   * تحل مشكلة "متابعة الإنجاز عبر زر التعديل الكامل" بجعلها بنقرة واحدة ومرتّبة.
+   */
+  function quickProgress(row) {
+    const body = UI.el('div');
+
+    const display = UI.el('div', { class: 'qp-pct-display' });
+    const range = UI.el('input', { class: 'qp-range', type: 'range', min: '0', max: '100', step: '5' });
+    let pct = Math.min(100, Math.max(0, Number(row.CompletionPct) || 0));
+    range.value = String(pct);
+    function paint() { display.textContent = pct + '%'; range.value = String(pct); }
+    paint();
+    range.addEventListener('input', function () { pct = Number(range.value) || 0; display.textContent = pct + '%'; });
+
+    const chips = UI.el('div', { class: 'qp-quickrow' });
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      chips.appendChild(UI.el('button', { class: 'qp-chip', type: 'button', text: v + '%',
+        onclick: function () { pct = v; paint(); } }));
+    });
+
+    function labeled(labelText, control) {
+      return UI.el('div', { class: 'form-row', style: 'margin-top:14px' }, [
+        UI.el('label', { class: 'form-label', text: labelText }), control
+      ]);
+    }
+    const statusSel = UI.el('select', { class: 'select' });
+    ENUMS.projectStatus.forEach(function (s) {
+      const o = UI.el('option', { value: s, text: s });
+      if (s === row.Status) o.setAttribute('selected', 'true');
+      statusSel.appendChild(o);
+    });
+    const phaseSel = UI.el('select', { class: 'select' });
+    ENUMS.projectPhases.forEach(function (p) {
+      const o = UI.el('option', { value: p, text: p });
+      if (p === row.Phase) o.setAttribute('selected', 'true');
+      phaseSel.appendChild(o);
+    });
+
+    body.appendChild(display);
+    body.appendChild(range);
+    body.appendChild(chips);
+    body.appendChild(labeled('الحالة', statusSel));
+    body.appendChild(labeled('المرحلة الحالية', phaseSel));
+
+    const footer = UI.el('div', { class: 'modal-footer' });
+    const m = UI.modal('تحديث تقدّم: ' + row.Title, body, { footer: footer });
+    footer.appendChild(UI.el('button', { class: 'btn btn-ghost', text: 'إلغاء', onclick: m.close }));
+    const saveBtn = UI.el('button', { class: 'btn btn-primary', text: 'حفظ التحديث', onclick: async function () {
+      saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
+      try {
+        // عند بلوغ 100% نضبط الحالة تلقائياً إلى "اكتمل" إن لم يغيّرها المستخدم
+        let status = statusSel.value;
+        if (pct >= 100 && status !== 'اكتمل' && status === row.Status) status = 'اكتمل';
+        await API.call('projects.update', { id: row.ID, CompletionPct: pct, Status: status, Phase: phaseSel.value });
+        m.close();
+        UI.toast('تم تحديث التقدّم', 'success');
+        allItems = []; load();
+      } catch (err) {
+        UI.toast(err.message, 'error');
+        saveBtn.disabled = false; saveBtn.textContent = 'حفظ التحديث';
+      }
+    } });
+    footer.appendChild(saveBtn);
+  }
+
   function confirmDelete(row) {
     UI.confirm('حذف المشروع "' + row.Title + '"؟', async function () {
       try { await API.call('projects.delete', { id: row.ID }); UI.toast('تم الحذف', 'success'); allItems = []; load(); }
@@ -152,13 +229,18 @@
   }
 
   function viewDetail(row) {
+    let detailModal = null;
     const body = UI.el('div', { class: 'detail-list' });
 
-    // شريط تقدم بارز في الأعلى
+    // شريط تقدم بارز في الأعلى + زر تحديث سريع
     const pct = Math.min(100, Math.max(0, Number(row.CompletionPct) || 0));
     const progressSection = UI.el('div', { style: 'margin-bottom:18px' });
     progressSection.innerHTML = '<div class="card-title">نسبة الإنجاز</div>' + progressBar(pct);
     body.appendChild(progressSection);
+    if (Auth.cap('projects.edit')) {
+      progressSection.appendChild(UI.el('button', { class: 'btn btn-primary btn-sm mt-16', text: '📈 تحديث التقدّم والمرحلة',
+        onclick: function () { if (detailModal) detailModal.close(); quickProgress(row); } }));
+    }
 
     const detailRows = [
       ['المسجد', row.MosqueName], ['نوع المشروع', row.Type], ['العنوان', row.Title],
@@ -194,7 +276,7 @@
       });
       body.appendChild(docsDiv);
     }
-    UI.modal('تفاصيل المشروع: ' + row.Title, body);
+    detailModal = UI.modal('تفاصيل المشروع: ' + row.Title, body);
   }
 
   load();

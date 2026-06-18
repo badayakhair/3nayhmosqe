@@ -917,6 +917,19 @@ function handleDashboard_stats(payload, user) {
   var visitsTrend = monthlyTrend_(visits, 'Date', 6);
   var maintCostTrend = monthlyTrend_(maintenance, 'Date', 6, 'Cost');
 
+  var activeProjects = projects.filter(function(p) { return p.Status !== 'اكتمل' && p.Status !== 'متوقف'; });
+  var completedProjects = projects.filter(function(p) { return p.Status === 'اكتمل'; });
+  var yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+
+  // مؤشرات مالية/تشغيلية مجمّعة
+  var activeBudget = activeProjects.reduce(function(s, p) { return s + (Number(p.Budget) || 0); }, 0);
+  var maintCostYear = maintenance.filter(function(m) { return new Date(m.Date).getTime() >= yearStart; })
+                                 .reduce(function(s, m) { return s + (Number(m.Cost) || 0); }, 0);
+  var avgCompletion = activeProjects.length
+    ? Math.round(activeProjects.reduce(function(s, p) { return s + (Number(p.CompletionPct) || 0); }, 0) / activeProjects.length)
+    : 0;
+  var totalNeedsGap = needs.reduce(function(s, n) { return s + Math.max(0, (Number(n.Needed) || 0) - (Number(n.Available) || 0)); }, 0);
+
   var result = {
     cards: {
       mosques: mosques.length,
@@ -929,9 +942,16 @@ function handleDashboard_stats(payload, user) {
       overdueReports: overdueReports.length,
       overdueCleaning: overdueCleaning.length,
       overdueMaintAssets: overdueMaintAssets.length,
-      activeProjects: projects.filter(function(p) { return p.Status !== 'اكتمل' && p.Status !== 'متوقف'; }).length,
+      activeProjects: activeProjects.length,
+      completedProjects: completedProjects.length,
       renovationCount: projects.filter(function(p) { return p.Type === 'ترميم'; }).length,
       unsatisfiedNeeds: needs.filter(function(n) { return n.Status !== 'مُسدّ'; }).length
+    },
+    kpis: {
+      activeBudget: activeBudget,
+      maintCostYear: maintCostYear,
+      avgCompletion: avgCompletion,
+      totalNeedsGap: totalNeedsGap
     },
     charts: {
       reportsByStatus: byStatus,

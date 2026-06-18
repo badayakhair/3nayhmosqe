@@ -111,24 +111,26 @@ window.UI = (function () {
   }
 
   /* ---- تنسيق ---- */
+  // التقويم الميلادي مع أرقام لاتينية — متّسق مع بقية الأرقام في النظام
   function fmtDate(v) {
     if (!v) return '—';
     const d = new Date(v);
     if (isNaN(d)) return v;
-    return d.toLocaleDateString('ar-SA-u-ca-gregory', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' });
   }
 
   function fmtDateTime(v) {
     if (!v) return '—';
     const d = new Date(v);
     if (isNaN(d)) return v;
-    return d.toLocaleDateString('ar-SA-u-ca-gregory') + ' ' +
-           d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' +
+           d.toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
   }
 
   function fmtNum(v) {
     const n = Number(v) || 0;
-    return n.toLocaleString('ar-SA');
+    // أرقام لاتينية (0-9) أوضح وأنظف في لوحات المؤشرات من الأرقام العربية-الهندية
+    return n.toLocaleString('en-US');
   }
 
   function todayInput() {

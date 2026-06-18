@@ -35,24 +35,32 @@
     ])
   ]));
 
-  // ===== بطاقات الإحصائيات (أكبر وأوضح) =====
-  const cards = [
-    { icon: '🕌', label: 'عدد المساجد', value: c.mosques, cls: '' },
-    { icon: '🚩', label: 'بلاغات مفتوحة', value: c.openReports, cls: 'warn' },
-    { icon: '⚠️', label: 'بلاغات حرجة', value: c.criticalReports, cls: 'danger' },
-    { icon: '📋', label: 'زيارات هذا الشهر', value: c.visitsThisMonth, cls: 'info' },
-    { icon: '🔧', label: 'أعمال الصيانة', value: c.maintenanceCount, cls: '' },
-    { icon: '📦', label: 'إجمالي الأصول', value: c.assets, cls: 'info' },
-    { icon: '🏗️', label: 'مشاريع نشطة', value: c.activeProjects || 0, cls: '' },
-    { icon: '🔨', label: 'مشاريع ترميم', value: c.renovationCount || 0, cls: '' },
-    { icon: '📋', label: 'احتياجات غير مُسدَّة', value: c.unsatisfiedNeeds || 0, cls: c.unsatisfiedNeeds > 0 ? 'warn' : '' }
-  ];
-  // بطاقات التنبيهات (تُعرض فقط عند وجود مشكلات)
-  if (c.overdueReports > 0 || c.overdueCleaning > 0 || c.overdueMaintAssets > 0) {
-    cards.push({ icon: '🔴', label: 'بلاغات متأخرة > 7 أيام', value: c.overdueReports || 0, cls: 'danger' });
-    if (c.overdueCleaning > 0)    cards.push({ icon: '🧹', label: 'نظافة متأخرة', value: c.overdueCleaning, cls: 'warn' });
-    if (c.overdueMaintAssets > 0) cards.push({ icon: '⚙️', label: 'أصول تحتاج صيانة دورية', value: c.overdueMaintAssets, cls: 'warn' });
+  // ===== شريط تنبيهات المهام المتأخرة (يظهر فقط عند وجود متأخرات، وقابل للنقر) =====
+  const alerts = [];
+  if (c.overdueReports > 0)     alerts.push({ cls: 'danger', icon: '🔴', text: 'يوجد ' + UI.fmtNum(c.overdueReports) + ' بلاغ متأخر (مفتوح أكثر من 7 أيام)', href: 'reports.html', link: 'عرض البلاغات' });
+  if (c.overdueCleaning > 0)    alerts.push({ cls: 'warn',   icon: '🧹', text: 'يوجد ' + UI.fmtNum(c.overdueCleaning) + ' جدول نظافة تجاوز موعده', href: 'cleaning.html', link: 'عرض النظافة' });
+  if (c.overdueMaintAssets > 0) alerts.push({ cls: 'warn',   icon: '⚙️', text: 'يوجد ' + UI.fmtNum(c.overdueMaintAssets) + ' أصل لم تتم صيانته منذ أكثر من 6 أشهر', href: 'assets.html', link: 'عرض الأصول' });
+  if (alerts.length) {
+    const strip = UI.el('div', { class: 'alert-strip' });
+    alerts.forEach(function (a) {
+      strip.appendChild(UI.el('div', { class: 'alert alert-' + a.cls }, [
+        UI.el('span', { text: a.icon }),
+        UI.el('span', { text: a.text }),
+        UI.el('a', { class: 'alert-link', href: a.href, text: a.link + ' ←' })
+      ]));
+    });
+    page.appendChild(strip);
   }
+
+  // ===== بطاقات المؤشرات الأساسية (منتقاة — بلا حشو) =====
+  const cards = [
+    { icon: '🕌', label: 'المساجد', value: c.mosques, cls: '' },
+    { icon: '🚩', label: 'بلاغات مفتوحة', value: c.openReports, cls: c.openReports > 0 ? 'warn' : '' },
+    { icon: '⚠️', label: 'بلاغات حرجة', value: c.criticalReports, cls: c.criticalReports > 0 ? 'danger' : '' },
+    { icon: '🏗️', label: 'مشاريع نشطة', value: c.activeProjects || 0, cls: 'info' },
+    { icon: '📋', label: 'احتياجات غير مُسدَّة', value: c.unsatisfiedNeeds || 0, cls: c.unsatisfiedNeeds > 0 ? 'warn' : '' },
+    { icon: '📅', label: 'زيارات هذا الشهر', value: c.visitsThisMonth, cls: 'info' }
+  ];
   const grid = UI.el('div', { class: 'stats-grid' });
   cards.forEach(function (card) {
     grid.appendChild(UI.el('div', { class: 'stat-card' }, [
@@ -64,6 +72,25 @@
     ]));
   });
   page.appendChild(grid);
+
+  // ===== شريط مؤشرات مالية/تشغيلية مجمّعة =====
+  if (data.kpis) {
+    const k = data.kpis;
+    const kpis = [
+      { val: UI.fmtNum(k.activeBudget) + ' ريال', lbl: 'ميزانية المشاريع النشطة' },
+      { val: UI.fmtNum(k.maintCostYear) + ' ريال', lbl: 'تكاليف الصيانة هذا العام' },
+      { val: k.avgCompletion + '%', lbl: 'متوسط إنجاز المشاريع النشطة' },
+      { val: UI.fmtNum(k.totalNeedsGap), lbl: 'إجمالي فجوة الاحتياجات (وحدات)' }
+    ];
+    const kgrid = UI.el('div', { class: 'kpi-strip' });
+    kpis.forEach(function (x) {
+      kgrid.appendChild(UI.el('div', { class: 'kpi-box' }, [
+        UI.el('div', { class: 'kpi-val', text: x.val }),
+        UI.el('div', { class: 'kpi-lbl', text: x.lbl })
+      ]));
+    });
+    page.appendChild(kgrid);
+  }
 
   // ===== المخططات =====
   const charts = UI.el('div', { class: 'charts-grid' });

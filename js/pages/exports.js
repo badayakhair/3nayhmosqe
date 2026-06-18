@@ -20,10 +20,12 @@
     { value: 'maintenance', label: 'تقرير الصيانة والتكاليف' },
     { value: 'visits',      label: 'تقرير الزيارات الميدانية' },
     { value: 'assets',      label: 'تقرير الأصول والموجودات' },
+    { value: 'projects',    label: 'تقرير المشاريع والترميم' },
+    { value: 'needs',       label: 'تقرير الاحتياجات' },
     { value: 'mosque',      label: 'تقرير مسجد شامل' }
   ];
 
-  let typeSel, mosqueSel, fromInp, toInp, orientSel, dynWrap, colWrap;
+  let typeSel, mosqueSel, fromInp, toInp, orientSel, dynWrap, colWrap, titleInp, introInp;
 
   async function init() {
     page.innerHTML = '';
@@ -42,6 +44,8 @@
     fromInp = UI.el('input', { class: 'input', type: 'date', name: 'from' });
     toInp = UI.el('input', { class: 'input', type: 'date', name: 'to' });
     orientSel = selectEl('orient', [{ value: 'portrait', label: 'طولي' }, { value: 'landscape', label: 'عرضي' }]);
+    titleInp = UI.el('input', { class: 'input', type: 'text', placeholder: 'اتركه فارغاً لاستخدام العنوان الافتراضي' });
+    introInp = UI.el('textarea', { class: 'textarea', placeholder: 'نص تمهيدي اختياري يظهر أسفل ترويسة التقرير (مثل: الغرض من التقرير، الجهة الموجَّه لها…)' });
     dynWrap = UI.el('div', { class: 'form-grid', style: 'grid-column:1/-1' });
 
     typeSel.addEventListener('change', renderDynamicFilters);
@@ -52,7 +56,11 @@
         formRow('المسجد', mosqueSel),
         formRow('من تاريخ', fromInp),
         formRow('إلى تاريخ', toInp),
-        formRow('اتجاه الطباعة', orientSel)
+        formRow('اتجاه الطباعة', orientSel),
+        formRow('عنوان مخصّص للتقرير', titleInp)
+      ]),
+      UI.el('div', { class: 'form-row full', style: 'margin-top:4px' }, [
+        UI.el('label', { class: 'form-label', text: 'مقدمة / ملاحظات (اختياري)' }), introInp
       ]),
       dynWrap,
       UI.el('div', { class: 'mt-16', style: 'display:flex;gap:10px;flex-wrap:wrap' }, [
@@ -79,6 +87,12 @@
     } else if (t === 'assets') {
       dynWrap.appendChild(formRow('النوع', selectEl('atype', optList('— كل الأنواع —', ENUMS.assetTypes))));
       dynWrap.appendChild(formRow('الحالة', selectEl('astatus', optList('— كل الحالات —', ENUMS.assetStatus))));
+    } else if (t === 'projects') {
+      dynWrap.appendChild(formRow('الحالة', selectEl('pstatus', optList('— كل الحالات —', ENUMS.projectStatus))));
+      dynWrap.appendChild(formRow('النوع', selectEl('ptype', optList('— كل الأنواع —', ENUMS.projectTypes))));
+    } else if (t === 'needs') {
+      dynWrap.appendChild(formRow('الفئة', selectEl('ncat', optList('— كل الفئات —', ENUMS.needsCategories))));
+      dynWrap.appendChild(formRow('الحالة', selectEl('nstatus', optList('— كل الحالات —', ENUMS.needsStatus))));
     }
   }
 
@@ -119,9 +133,17 @@
     } else if (type === 'assets') {
       if (dynVal('atype')) filters.type = dynVal('atype');
       if (dynVal('astatus')) filters.status = dynVal('astatus');
+    } else if (type === 'projects') {
+      if (dynVal('pstatus')) filters.status = dynVal('pstatus');
+      if (dynVal('ptype')) filters.type = dynVal('ptype');
+    } else if (type === 'needs') {
+      if (dynVal('ncat')) filters.category = dynVal('ncat');
+      if (dynVal('nstatus')) filters.status = dynVal('nstatus');
     }
 
-    const title = (TYPES.find(function (t) { return t.value === type; }) || {}).label || 'تقرير';
+    const defaultTitle = (TYPES.find(function (t) { return t.value === type; }) || {}).label || 'تقرير';
+    const title = (titleInp.value || '').trim() || defaultTitle;
+    const intro = (introInp.value || '').trim();
 
     let data;
     try {
@@ -130,13 +152,15 @@
       else if (type === 'maintenance')  data = await buildMaintenance(filters);
       else if (type === 'visits')       data = await buildVisits(filters);
       else if (type === 'assets')       data = await buildTable('assets.list', filters, ASSET_COLS, 'أصل');
+      else if (type === 'projects')     data = await buildProjects(filters);
+      else if (type === 'needs')        data = await buildNeeds(filters);
       else if (type === 'mosque') {
         if (!mosqueId) { UI.toast('اختر مسجداً لتقرير المسجد الشامل.', 'error'); return; }
         data = await buildMosque(mosqueId, from, to);
       }
     } catch (err) { UI.toast('تعذّر توليد التقرير: ' + err.message, 'error'); return; }
 
-    current = { type: type, title: title, mosqueId: mosqueId, from: from, to: to, data: data };
+    current = { type: type, title: title, intro: intro, mosqueId: mosqueId, from: from, to: to, data: data };
     renderColumnToggles();
     renderReport();
   }
@@ -151,6 +175,12 @@
     ['التكلفة (ريال)', 'Cost', 'num'], ['الوصف', 'Description']];
   const VISIT_COLS = [['التاريخ', 'Date', 'date'], ['المسجد', 'MosqueName'], ['المراقب', 'Inspector'],
     ['النظافة', 'CleanRating'], ['الصيانة', 'MaintRating'], ['التكييف', 'ACRating'], ['دورات المياه', 'ToiletRating']];
+  const PROJECT_COLS = [['المسجد', 'MosqueName'], ['النوع', 'Type'], ['العنوان', 'Title'],
+    ['الحالة', 'Status'], ['المرحلة', 'Phase'], ['الإنجاز %', 'CompletionPct', 'num'],
+    ['الميزانية', 'Budget', 'num'], ['التكلفة الفعلية', 'ActualCost', 'num'], ['المقاول', 'Contractor']];
+  const NEEDS_COLS = [['المسجد', 'MosqueName'], ['الفئة', 'Category'], ['البند', 'Item'],
+    ['مطلوب', 'Needed', 'num'], ['متاح', 'Available', 'num'], ['الفجوة', 'Gap', 'num'],
+    ['الوحدة', 'Unit'], ['الحالة', 'Status']];
 
   /* ---------------- بناة التقارير (ببنية منظمة) ---------------- */
 
@@ -178,6 +208,28 @@
         ['متوسط التكييف', avg('ACRating')], ['متوسط دورات المياه', avg('ToiletRating')]] };
   }
 
+  async function buildProjects(filters) {
+    const d = await API.call('projects.list', filters);
+    const budget = d.items.reduce(function (s, r) { return s + (Number(r.Budget) || 0); }, 0);
+    const actual = d.items.reduce(function (s, r) { return s + (Number(r.ActualCost) || 0); }, 0);
+    const avg = d.items.length
+      ? Math.round(d.items.reduce(function (s, r) { return s + (Number(r.CompletionPct) || 0); }, 0) / d.items.length)
+      : 0;
+    return { kind: 'table', cols: PROJECT_COLS, rows: d.items, unit: 'مشروع', total: d.total,
+      aggregates: [['إجمالي الميزانيات', UI.fmtNum(budget) + ' ريال'],
+        ['إجمالي التكاليف الفعلية', UI.fmtNum(actual) + ' ريال'],
+        ['متوسط نسبة الإنجاز', avg + '%']] };
+  }
+
+  async function buildNeeds(filters) {
+    const d = await API.call('needs.list', filters);
+    const gap = d.items.reduce(function (s, r) { return s + (Number(r.Gap) || 0); }, 0);
+    const unsatisfied = d.items.filter(function (r) { return r.Status !== 'مُسدّ'; }).length;
+    return { kind: 'table', cols: NEEDS_COLS, rows: d.items, unit: 'بند احتياج', total: d.total,
+      aggregates: [['إجمالي الفجوة (وحدات)', UI.fmtNum(gap)],
+        ['بنود غير مُسدَّة', UI.fmtNum(unsatisfied)]] };
+  }
+
   async function buildSummary() {
     const d = await API.call('dashboard.stats', {});
     return { kind: 'summary', stats: d };
@@ -187,12 +239,15 @@
     const f = { mosqueId: mosqueId };
     if (from) f.from = from;
     if (to) f.to = to;
+    const empty = Promise.resolve({ items: [] });
     const results = await Promise.all([
       API.call('mosques.get', { id: mosqueId }),
       API.call('reports.list', f),
       API.call('maintenance.list', f),
       API.call('visits.list', f),
-      API.call('assets.list', { mosqueId: mosqueId })
+      API.call('assets.list', { mosqueId: mosqueId }),
+      Auth.cap('projects.view') ? API.call('projects.list', { mosqueId: mosqueId }) : empty,
+      Auth.cap('needs.view') ? API.call('needs.list', { mosqueId: mosqueId }) : empty
     ]);
     return {
       kind: 'mosque',
@@ -200,7 +255,9 @@
       reports: results[1].items,
       maint: results[2].items,
       visits: results[3].items,
-      assets: results[4].items
+      assets: results[4].items,
+      projects: results[5].items,
+      needs: results[6].items
     };
   }
 
@@ -280,7 +337,8 @@
     if (data.kind === 'summary') {
       const c = data.stats.cards;
       const cards = [['عدد المساجد', c.mosques], ['بلاغات مفتوحة', c.openReports], ['بلاغات حرجة', c.criticalReports],
-        ['زيارات هذا الشهر', c.visitsThisMonth], ['إجمالي الصيانة', c.maintenanceCount], ['إجمالي الأصول', c.assets]];
+        ['زيارات هذا الشهر', c.visitsThisMonth], ['إجمالي الصيانة', c.maintenanceCount], ['إجمالي الأصول', c.assets],
+        ['مشاريع نشطة', c.activeProjects || 0], ['مشاريع مكتملة', c.completedProjects || 0], ['احتياجات غير مُسدَّة', c.unsatisfiedNeeds || 0]];
       let html = '<div class="rep-cards">';
       cards.forEach(function (k) { html += '<div class="rep-card"><div class="rep-card-v">' + UI.fmtNum(k[1]) + '</div><div class="rep-card-l">' + k[0] + '</div></div>'; });
       html += '</div>';
@@ -300,6 +358,10 @@
       html += section('أعمال الصيانة (' + data.maint.length + ')', tableHtml(MAINT_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.maint));
       html += section('الزيارات (' + data.visits.length + ')', tableHtml(VISIT_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.visits));
       html += section('الأصول (' + data.assets.length + ')', tableHtml(ASSET_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.assets));
+      if (data.projects && data.projects.length)
+        html += section('المشاريع والترميم (' + data.projects.length + ')', tableHtml(PROJECT_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.projects));
+      if (data.needs && data.needs.length)
+        html += section('الاحتياجات (' + data.needs.length + ')', tableHtml(NEEDS_COLS.filter(function (c) { return c[1] !== 'MosqueName'; }), data.needs));
       return html;
     }
     // table
@@ -329,8 +391,11 @@
         '</div>' +
       '</div>';
     const footer = '<div class="rep-footer">نظام العناية بالمساجد — ' + UI.escapeHtml(APP_CONFIG.ORG_NAME) + '</div>';
+    const intro = current.intro
+      ? '<div class="rep-intro">' + UI.escapeHtml(current.intro).replace(/\n/g, '<br>') + '</div>'
+      : '';
 
-    out.innerHTML = header + '<div class="rep-body">' + buildBodyHtml() + '</div>' + footer;
+    out.innerHTML = header + intro + '<div class="rep-body">' + buildBodyHtml() + '</div>' + footer;
     out.classList.add('visible');
     applyOrientation();
 
