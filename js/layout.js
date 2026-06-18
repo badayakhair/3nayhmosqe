@@ -16,6 +16,8 @@ window.Layout = (function () {
     { key: 'maintenance',   label: 'الصيانة',        icon: '🔧', href: 'maintenance.html', cap: 'maintenance.view' },
     { key: 'cleaning',      label: 'النظافة',        icon: '🧹', href: 'cleaning.html', cap: 'cleaning.view' },
     { key: 'assets',        label: 'الأصول',         icon: '📦', href: 'assets.html', cap: 'assets.view' },
+    { key: 'projects',      label: 'المشاريع والترميم', icon: '🏗️', href: 'projects.html', cap: 'projects.view' },
+    { key: 'needs',         label: 'الاحتياجات',    icon: '📋', href: 'needs.html', cap: 'needs.view' },
     { key: 'exports',       label: 'التقارير',       icon: '📄', href: 'exports.html' },
     { key: 'notifications', label: 'الإشعارات',      icon: '🔔', href: 'notifications.html' },
     { key: 'settings',      label: 'المستخدمون والصلاحيات', icon: '⚙️', href: 'settings.html', roles: ['admin'] }

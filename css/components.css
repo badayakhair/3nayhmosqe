@@ -239,3 +239,22 @@ body.has-modal .leaflet-container { z-index: 0 !important; }
   .rep-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { margin: 14mm; }
 }
+
+/* ===================== شريط التقدم ===================== */
+.progress-wrap { width: 100%; }
+.progress-track {
+  background: var(--border); border-radius: 99px; height: 10px;
+  overflow: hidden; margin: 4px 0;
+}
+.progress-fill {
+  height: 100%; border-radius: 99px;
+  background: var(--primary); transition: width .3s ease;
+}
+.progress-pct { font-size: 12px; color: var(--text-muted); }
+
+/* ===================== شارات حالة المشاريع ===================== */
+.badge-study   { background: #e8eaf6; color: #3949ab; }
+.badge-fund    { background: #fff8e1; color: #f57f17; }
+.badge-exec    { background: #e8f5e9; color: #2e7d32; }
+.badge-done    { background: #e0f2f1; color: #00695c; }
+.badge-paused  { background: #fce4ec; color: #c62828; }

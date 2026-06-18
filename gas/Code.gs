@@ -52,7 +52,17 @@ var SHEETS = {
   Mosques: {
     name: 'Mosques',
     columns: ['ID', 'Name', 'District', 'City', 'Lat', 'Lng', 'Capacity',
-              'Toilets', 'ACs', 'Courts', 'Notes', 'Images', 'CreatedAt', 'UpdatedAt', 'MapURL']
+              'Toilets', 'ACs', 'Courts', 'Notes', 'Images', 'CreatedAt', 'UpdatedAt', 'MapURL', 'Category']
+  },
+  Projects: {
+    name: 'Projects',
+    columns: ['ID','MosqueID','Type','Title','Description','Status','Phase',
+              'Budget','ActualCost','Contractor','StartDate','EndDate',
+              'CompletionPct','Priority','Images','Documents','CreatedBy','CreatedAt','UpdatedAt']
+  },
+  Needs: {
+    name: 'Needs',
+    columns: ['ID','MosqueID','Category','Item','Needed','Available','Unit','Status','Notes','CreatedBy','CreatedAt','UpdatedAt']
   },
   Visits: {
     name: 'Visits',
@@ -101,7 +111,13 @@ var ENUMS = {
   reportTypes: ['نظافة', 'صيانة', 'تكييف', 'دورات مياه', 'كهرباء', 'سباكة', 'أخرى'],
   assetTypes: ['مكيف', 'سماعة', 'شاشة', 'فرش', 'خزان مياه', 'إضاءة', 'أخرى'],
   assetStatus: ['يعمل', 'يحتاج صيانة', 'معطل', 'خارج الخدمة'],
-  cleaningSchedule: ['يومي', 'أسبوعي', 'نصف شهري', 'شهري']
+  cleaningSchedule: ['يومي', 'أسبوعي', 'نصف شهري', 'شهري'],
+  mosqueCategories: ['جامع', 'مسجد حي', 'مسجد طريق-مسافرين', 'مؤقت', 'نموذجي'],
+  projectTypes: ['ترميم', 'توسعة', 'تجهيز تقني', 'تأهيل', 'أخرى'],
+  projectStatus: ['دراسة', 'تمويل', 'تنفيذ', 'اكتمل', 'متوقف'],
+  projectPhases: ['تقييم الاحتياج', 'إعداد المخططات', 'تقديم العطاءات', 'توقيع العقد', 'بدء التنفيذ', 'تنفيذ', 'مراجعة وتسليم'],
+  needsCategories: ['فرش', 'تكييف', 'تقنية', 'أمن وسلامة', 'كهرباء وإضاءة', 'سباكة', 'أخرى'],
+  needsStatus: ['لم يُسدّ', 'قيد التدارك', 'مُسدّ']
 };
 
 /**
@@ -136,7 +152,15 @@ var CAPABILITIES = [
   { key: 'assets.create',     label: 'إضافة أصل',              group: 'الأصول' },
   { key: 'assets.edit',       label: 'تعديل أصل',              group: 'الأصول' },
   { key: 'assets.delete',     label: 'حذف أصل',                group: 'الأصول' },
-  { key: 'notifications.generate', label: 'توليد التنبيهات الدورية', group: 'الإشعارات' }
+  { key: 'notifications.generate', label: 'توليد التنبيهات الدورية', group: 'الإشعارات' },
+  { key: 'projects.view',   label: 'عرض المشاريع',      group: 'المشاريع' },
+  { key: 'projects.create', label: 'إضافة مشروع',        group: 'المشاريع' },
+  { key: 'projects.edit',   label: 'تعديل مشروع',        group: 'المشاريع' },
+  { key: 'projects.delete', label: 'حذف مشروع',          group: 'المشاريع' },
+  { key: 'needs.view',      label: 'عرض الاحتياجات',     group: 'الاحتياجات' },
+  { key: 'needs.create',    label: 'إضافة احتياج',       group: 'الاحتياجات' },
+  { key: 'needs.edit',      label: 'تعديل احتياج',       group: 'الاحتياجات' },
+  { key: 'needs.delete',    label: 'حذف احتياج',         group: 'الاحتياجات' }
 ];
 
 /**
@@ -151,7 +175,8 @@ function defaultPermissions_() {
     return row;
   }
   var viewAll = ['dashboard.view','mosques.view','visits.view','reports.view',
-                 'maintenance.view','cleaning.view','assets.view'];
+                 'maintenance.view','cleaning.view','assets.view',
+                 'projects.view','needs.view'];
   return {
     supervisor: build(viewAll.concat([
       'mosques.create','mosques.edit',
@@ -160,12 +185,15 @@ function defaultPermissions_() {
       'maintenance.create','maintenance.edit',
       'cleaning.create','cleaning.edit','cleaning.delete',
       'assets.create','assets.edit',
-      'notifications.generate'
+      'notifications.generate',
+      'projects.create','projects.edit',
+      'needs.create','needs.edit','needs.delete'
     ])),
     inspector: build(viewAll.concat([
       'visits.create','visits.edit',
       'reports.create',
-      'cleaning.create','cleaning.edit'
+      'cleaning.create','cleaning.edit',
+      'needs.create'
     ])),
     viewer: build(viewAll)
   };
@@ -570,6 +598,20 @@ function getRoutes_() {
     'assets.update':         { fn: handleAssets_update,         auth: true,  cap: 'assets.edit' },
     'assets.delete':         { fn: handleAssets_delete,         auth: true,  cap: 'assets.delete' },
 
+    // ---- المشاريع ----
+    'projects.list':   { fn: handleProjects_list,   auth: true, cap: 'projects.view' },
+    'projects.get':    { fn: handleProjects_get,    auth: true, cap: 'projects.view' },
+    'projects.create': { fn: handleProjects_create, auth: true, cap: 'projects.create' },
+    'projects.update': { fn: handleProjects_update, auth: true, cap: 'projects.edit' },
+    'projects.delete': { fn: handleProjects_delete, auth: true, cap: 'projects.delete' },
+
+    // ---- الاحتياجات ----
+    'needs.list':      { fn: handleNeeds_list,      auth: true, cap: 'needs.view' },
+    'needs.get':       { fn: handleNeeds_get,       auth: true, cap: 'needs.view' },
+    'needs.create':    { fn: handleNeeds_create,    auth: true, cap: 'needs.create' },
+    'needs.update':    { fn: handleNeeds_update,    auth: true, cap: 'needs.edit' },
+    'needs.delete':    { fn: handleNeeds_delete,    auth: true, cap: 'needs.delete' },
+
     // ---- الإشعارات ----
     'notifications.list':    { fn: handleNotifications_list,    auth: true,  roles: ['*'] },
     'notifications.markRead':{ fn: handleNotifications_markRead, auth: true, roles: ['*'] },
@@ -845,6 +887,8 @@ function handleDashboard_stats(payload, user) {
   var maintenance = readRows_('Maintenance');
   var assets = readRows_('Assets');
   var cleaning = readRows_('Cleaning');
+  var projects = readRows_('Projects');
+  var needs = readRows_('Needs');
 
   var nowMs = Date.now();
   var now = new Date();
@@ -884,7 +928,10 @@ function handleDashboard_stats(payload, user) {
       assets: assets.length,
       overdueReports: overdueReports.length,
       overdueCleaning: overdueCleaning.length,
-      overdueMaintAssets: overdueMaintAssets.length
+      overdueMaintAssets: overdueMaintAssets.length,
+      activeProjects: projects.filter(function(p) { return p.Status !== 'اكتمل' && p.Status !== 'متوقف'; }).length,
+      renovationCount: projects.filter(function(p) { return p.Type === 'ترميم'; }).length,
+      unsatisfiedNeeds: needs.filter(function(n) { return n.Status !== 'مُسدّ'; }).length
     },
     charts: {
       reportsByStatus: byStatus,
@@ -959,7 +1006,8 @@ function handleMosques_create(payload, user) {
     Lat: lat, Lng: lng, Capacity: toNum_(payload.Capacity),
     Toilets: toNum_(payload.Toilets), ACs: toNum_(payload.ACs), Courts: toNum_(payload.Courts),
     Notes: payload.Notes || '', Images: payload.Images || '', CreatedAt: nowIso_(), UpdatedAt: nowIso_(),
-    MapURL: mapUrl
+    MapURL: mapUrl,
+    Category: payload.Category || ''
   };
   insertRow_('Mosques', obj);
   invalidateMosqueCache_();
@@ -971,7 +1019,7 @@ function handleMosques_update(payload, user) {
   requireFields_(payload, ['id']);
   var row = findById_('Mosques', payload.id);
   if (!row) throw new Error('المسجد غير موجود.');
-  var patch = pick_(payload, ['Name','District','City','Capacity','Toilets','ACs','Courts','Notes','Images']);
+  var patch = pick_(payload, ['Name','District','City','Capacity','Toilets','ACs','Courts','Notes','Images','Category']);
   if (payload.MapURL !== undefined) patch.MapURL = payload.MapURL;
 
   // الأولوية لإحداثيات الدبوس المؤكَّدة من منتقي الخريطة.
@@ -1562,6 +1610,17 @@ function handlePermissions_update(payload, user) {
 function setup() {
   Object.keys(SHEETS).forEach(function (key) { getSheet_(key); });
 
+  // إضافة عمود Category لشيت المساجد إن لم يكن موجوداً (ترقية)
+  var mosqueSheet = getSS_().getSheetByName('Mosques');
+  if (mosqueSheet) {
+    var mLastCol = mosqueSheet.getLastColumn();
+    var mHeaders = mosqueSheet.getRange(1, 1, 1, mLastCol).getValues()[0];
+    if (mHeaders.indexOf('Category') === -1) {
+      mosqueSheet.getRange(1, mLastCol + 1).setValue('Category');
+      Logger.log('تمت إضافة عمود Category لشيت المساجد');
+    }
+  }
+
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('PWD_SALT')) props.setProperty('PWD_SALT', Utilities.getUuid());
 
@@ -1611,4 +1670,122 @@ function dailyNotificationsJob() {
   var n = runScheduledChecks_();
   try { cleanupSessions_(); } catch (e) {}
   Logger.log('تم توليد ' + n + ' إشعار/تنبيه.');
+}
+
+
+/* ============================================================================
+ * [16] المشاريع (Projects)
+ * ========================================================================== */
+
+function handleProjects_list(payload) {
+  var rows = readRows_('Projects').map(stripRow_);
+  rows = filterByMosque_(rows, payload);
+  if (payload.status) rows = rows.filter(function(r) { return String(r.Status) === String(payload.status); });
+  if (payload.type) rows = rows.filter(function(r) { return String(r.Type) === String(payload.type); });
+  rows = enrichMosqueName_(rows);
+  rows.sort(function(a, b) { return new Date(b.CreatedAt) - new Date(a.CreatedAt); });
+  return { items: rows, total: rows.length };
+}
+
+function handleProjects_get(payload) {
+  requireFields_(payload, ['id']);
+  var row = findById_('Projects', payload.id);
+  if (!row) throw new Error('المشروع غير موجود.');
+  return { item: enrichMosqueName_([stripRow_(row)])[0] };
+}
+
+function handleProjects_create(payload, user) {
+  requireFields_(payload, ['MosqueID', 'Type', 'Title']);
+  var pct = Math.min(100, Math.max(0, toNum_(payload.CompletionPct)));
+  var obj = {
+    ID: genId_('PRJ'), MosqueID: payload.MosqueID, Type: payload.Type,
+    Title: payload.Title, Description: payload.Description || '',
+    Status: payload.Status || 'دراسة',
+    Phase: payload.Phase || 'تقييم الاحتياج',
+    Budget: toNum_(payload.Budget), ActualCost: toNum_(payload.ActualCost),
+    Contractor: payload.Contractor || '',
+    StartDate: payload.StartDate || '', EndDate: payload.EndDate || '',
+    CompletionPct: pct, Priority: payload.Priority || 'متوسطة',
+    Images: payload.Images || '', Documents: payload.Documents || '',
+    CreatedBy: user.Name, CreatedAt: nowIso_(), UpdatedAt: nowIso_()
+  };
+  insertRow_('Projects', obj);
+  audit_(user, 'create', 'Projects', obj.ID);
+  return { item: obj };
+}
+
+function handleProjects_update(payload, user) {
+  requireFields_(payload, ['id']);
+  var row = findById_('Projects', payload.id);
+  if (!row) throw new Error('المشروع غير موجود.');
+  var patch = pick_(payload, ['MosqueID','Type','Title','Description','Status','Phase',
+    'Budget','ActualCost','Contractor','StartDate','EndDate','CompletionPct','Priority','Images','Documents']);
+  if (patch.CompletionPct !== undefined) patch.CompletionPct = Math.min(100, Math.max(0, toNum_(patch.CompletionPct)));
+  patch.UpdatedAt = nowIso_();
+  var updated = updateRow_('Projects', row.__row, patch);
+  audit_(user, 'update', 'Projects', payload.id);
+  return { item: updated };
+}
+
+function handleProjects_delete(payload, user) {
+  requireFields_(payload, ['id']);
+  if (!deleteById_('Projects', payload.id)) throw new Error('المشروع غير موجود.');
+  audit_(user, 'delete', 'Projects', payload.id);
+  return { done: true };
+}
+
+
+/* ============================================================================
+ * [17] الاحتياجات (Needs)
+ * ========================================================================== */
+
+function handleNeeds_list(payload) {
+  var rows = readRows_('Needs').map(stripRow_);
+  rows = filterByMosque_(rows, payload);
+  if (payload.category) rows = rows.filter(function(r) { return String(r.Category) === String(payload.category); });
+  if (payload.status) rows = rows.filter(function(r) { return String(r.Status) === String(payload.status); });
+  rows = enrichMosqueName_(rows);
+  rows.sort(function(a, b) { return String(a.MosqueName || '').localeCompare(String(b.MosqueName || '')); });
+  rows.forEach(function(r) { r.Gap = Math.max(0, toNum_(r.Needed) - toNum_(r.Available)); });
+  return { items: rows, total: rows.length };
+}
+
+function handleNeeds_get(payload) {
+  requireFields_(payload, ['id']);
+  var row = findById_('Needs', payload.id);
+  if (!row) throw new Error('الاحتياج غير موجود.');
+  var item = enrichMosqueName_([stripRow_(row)])[0];
+  item.Gap = Math.max(0, toNum_(item.Needed) - toNum_(item.Available));
+  return { item: item };
+}
+
+function handleNeeds_create(payload, user) {
+  requireFields_(payload, ['MosqueID', 'Category', 'Item']);
+  var obj = {
+    ID: genId_('NED'), MosqueID: payload.MosqueID, Category: payload.Category,
+    Item: payload.Item, Needed: toNum_(payload.Needed), Available: toNum_(payload.Available),
+    Unit: payload.Unit || 'وحدة', Status: payload.Status || 'لم يُسدّ',
+    Notes: payload.Notes || '', CreatedBy: user.Name, CreatedAt: nowIso_(), UpdatedAt: nowIso_()
+  };
+  insertRow_('Needs', obj);
+  audit_(user, 'create', 'Needs', obj.ID);
+  return { item: obj };
+}
+
+function handleNeeds_update(payload, user) {
+  requireFields_(payload, ['id']);
+  var row = findById_('Needs', payload.id);
+  if (!row) throw new Error('الاحتياج غير موجود.');
+  var patch = pick_(payload, ['MosqueID','Category','Item','Needed','Available','Unit','Status','Notes']);
+  patch.UpdatedAt = nowIso_();
+  var updated = updateRow_('Needs', row.__row, patch);
+  audit_(user, 'update', 'Needs', payload.id);
+  return { item: updated };
+}
+
+function handleNeeds_delete(payload, user) {
+  requireFields_(payload, ['id']);
+  if (!deleteById_('Needs', payload.id)) throw new Error('الاحتياج غير موجود.');
+  audit_(user, 'delete', 'Needs', payload.id);
+  return { done: true };
 }

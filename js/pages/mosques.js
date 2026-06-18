@@ -11,6 +11,7 @@
   // الحقول النصية للنموذج (الموقع يُدار عبر منتقي الخريطة التفاعلي بشكل منفصل)
   const TEXT_FIELDS = [
     { name: 'Name', label: 'اسم المسجد', type: 'text', required: true, full: true },
+    { name: 'Category', label: 'تصنيف المسجد', type: 'select', options: ENUMS.mosqueCategories },
     { name: 'District', label: 'الحي', type: 'text', required: true },
     { name: 'City', label: 'المدينة', type: 'text', required: true },
     { name: 'Capacity', label: 'عدد المصلين التقريبي', type: 'number', min: 0 },
@@ -35,6 +36,7 @@
 
   const columns = [
     { key: 'Name', label: 'اسم المسجد' },
+    { key: 'Category', label: 'التصنيف', render: function (r) { return r.Category ? UI.el('span', { class: 'badge badge-info', text: r.Category }).outerHTML : '—'; } },
     { key: 'District', label: 'الحي' },
     { key: 'City', label: 'المدينة' },
     { key: 'Capacity', label: 'المصلون', render: function (r) { return UI.fmtNum(r.Capacity); } },
@@ -327,7 +329,7 @@
   function viewDetail(row) {
     const body = UI.el('div', { class: 'detail-list' });
     const rows = [
-      ['اسم المسجد', row.Name], ['الحي', row.District], ['المدينة', row.City],
+      ['اسم المسجد', row.Name], ['التصنيف', row.Category || '—'], ['الحي', row.District], ['المدينة', row.City],
       ['عدد المصلين', UI.fmtNum(row.Capacity)], ['دورات المياه', row.Toilets],
       ['المكيفات', row.ACs], ['الساحات', row.Courts],
       ['الموقع', (row.Lat && row.Lng) ? (row.Lat + ', ' + row.Lng) : '—'],

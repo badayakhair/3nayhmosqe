@@ -42,7 +42,10 @@
     { icon: '⚠️', label: 'بلاغات حرجة', value: c.criticalReports, cls: 'danger' },
     { icon: '📋', label: 'زيارات هذا الشهر', value: c.visitsThisMonth, cls: 'info' },
     { icon: '🔧', label: 'أعمال الصيانة', value: c.maintenanceCount, cls: '' },
-    { icon: '📦', label: 'إجمالي الأصول', value: c.assets, cls: 'info' }
+    { icon: '📦', label: 'إجمالي الأصول', value: c.assets, cls: 'info' },
+    { icon: '🏗️', label: 'مشاريع نشطة', value: c.activeProjects || 0, cls: '' },
+    { icon: '🔨', label: 'مشاريع ترميم', value: c.renovationCount || 0, cls: '' },
+    { icon: '📋', label: 'احتياجات غير مُسدَّة', value: c.unsatisfiedNeeds || 0, cls: c.unsatisfiedNeeds > 0 ? 'warn' : '' }
   ];
   // بطاقات التنبيهات (تُعرض فقط عند وجود مشكلات)
   if (c.overdueReports > 0 || c.overdueCleaning > 0 || c.overdueMaintAssets > 0) {
