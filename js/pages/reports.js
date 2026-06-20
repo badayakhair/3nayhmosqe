@@ -130,6 +130,14 @@
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'الوصف' }), UI.el('div', { class: 'v', text: row.Description })]));
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'أنشأه' }), UI.el('div', { class: 'v', text: row.CreatedBy })]));
     body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'تاريخ الإنشاء' }), UI.el('div', { class: 'v', text: UI.fmtDateTime(row.CreatedAt) })]));
+    // بيانات المُبلِّغ للبلاغات الواردة عبر النموذج العام
+    if (row.Source === 'عام') {
+      body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'المصدر' }),
+        UI.el('div', { class: 'v', html: '<span class="badge badge-info">نموذج عام</span>' })]));
+      if (row.SubmitterName) body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'اسم المُبلِّغ' }), UI.el('div', { class: 'v', text: row.SubmitterName })]));
+      if (row.SubmitterPhone) body.appendChild(UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'جوال المُبلِّغ' }),
+        UI.el('div', { class: 'v', html: '<a href="tel:' + UI.escapeHtml(row.SubmitterPhone) + '">' + UI.escapeHtml(row.SubmitterPhone) + '</a>' })]));
+    }
 
     const statusRow = UI.el('div', { class: 'detail-row' }, [UI.el('div', { class: 'k', text: 'الحالة' })]);
     if (Auth.cap('reports.status')) {

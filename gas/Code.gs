@@ -62,7 +62,7 @@ var SHEETS = {
   },
   Needs: {
     name: 'Needs',
-    columns: ['ID','MosqueID','Category','Item','Needed','Available','Unit','Status','Notes','CreatedBy','CreatedAt','UpdatedAt']
+    columns: ['ID','MosqueID','Category','Item','Needed','Available','Unit','Status','Notes','CreatedBy','CreatedAt','UpdatedAt','SubmitterName','SubmitterPhone','Source']
   },
   Visits: {
     name: 'Visits',
@@ -72,7 +72,8 @@ var SHEETS = {
   Reports: {
     name: 'Reports',
     columns: ['ID', 'MosqueID', 'Type', 'Priority', 'Description', 'Status',
-              'Images', 'CreatedBy', 'CreatedAt', 'UpdatedAt', 'ResolvedAt']
+              'Images', 'CreatedBy', 'CreatedAt', 'UpdatedAt', 'ResolvedAt',
+              'SubmitterName', 'SubmitterPhone', 'Source']
   },
   Maintenance: {
     name: 'Maintenance',
@@ -403,6 +404,26 @@ function isTrue_(v) {
   return v === true || String(v).toLowerCase() === 'true';
 }
 
+/** اقتطاع نص وتشذيبه إلى حد أقصى من الأحرف (حماية من المدخلات الكبيرة). */
+function clip_(v, max) {
+  var s = (v == null ? '' : String(v)).trim();
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+/** تنظيف رقم جوال: إبقاء الأرقام و+ فقط. يعيد '' إن كان فارغاً. */
+function sanitizePhone_(v) {
+  if (v == null) return '';
+  return String(v).replace(/[^0-9+]/g, '').slice(0, 16);
+}
+
+/** تطبيع رقم جوال سعودي إلى صيغة 9665XXXXXXXX الدولية للبوابات. */
+function normalizeKsaPhone_(v) {
+  var p = sanitizePhone_(v).replace(/^\+/, '');
+  if (/^0?5\d{8}$/.test(p)) p = '966' + p.replace(/^0/, '');      // 05xxxxxxxx أو 5xxxxxxxx
+  else if (/^9665\d{8}$/.test(p)) { /* جاهز */ }
+  return p;
+}
+
 
 /* ============================================================================
  * [3] دوال مشتركة بين الوحدات (Shared)
@@ -444,6 +465,7 @@ function mosqueNameMap_() {
 /** إبطال ذاكرة أسماء المساجد المؤقتة (تُستدعى بعد أي إضافة/تعديل/حذف مسجد). */
 function invalidateMosqueCache_() {
   try { CacheService.getScriptCache().remove('mosqueNames'); } catch (e) {}
+  try { CacheService.getScriptCache().remove('public:config'); } catch (e) {}
 }
 
 /* ---- الإعدادات العامة (Settings sheet) ---- */
@@ -625,7 +647,16 @@ function getRoutes_() {
 
     // ---- مصفوفة الصلاحيات (admin فقط) ----
     'permissions.get':       { fn: handlePermissions_get,       auth: true,  roles: ['admin'] },
-    'permissions.update':    { fn: handlePermissions_update,    auth: true,  roles: ['admin'] }
+    'permissions.update':    { fn: handlePermissions_update,    auth: true,  roles: ['admin'] },
+
+    // ---- النموذج العام (بلا مصادقة) — لاستقبال طلبات الأئمة والمصلين ----
+    'public.config':         { fn: handlePublic_config,         auth: false },
+    'public.submit':         { fn: handlePublic_submit,         auth: false },
+
+    // ---- إعدادات الرسائل النصية (admin فقط) ----
+    'sms.getConfig':         { fn: handleSms_getConfig,         auth: true,  roles: ['admin'] },
+    'sms.saveConfig':        { fn: handleSms_saveConfig,        auth: true,  roles: ['admin'] },
+    'sms.test':              { fn: handleSms_test,              auth: true,  roles: ['admin'] }
   };
 }
 
@@ -683,7 +714,7 @@ function dispatch_(e) {
       }
     }
 
-    var isWrite = /\.(create|update|delete|updateStatus|markRead|generate|changePassword)$/.test(action);
+    var isWrite = /\.(create|update|delete|updateStatus|markRead|generate|changePassword|submit|saveConfig)$/.test(action);
     if (isWrite) lock.waitLock(20000);
 
     var payload = body.payload || {};
@@ -1641,6 +1672,22 @@ function setup() {
     }
   }
 
+  // ترقية: إضافة أعمدة بيانات المُرسِل للنموذج العام إلى Reports و Needs إن لزم
+  ['Reports', 'Needs'].forEach(function (sheetName) {
+    var sh = getSS_().getSheetByName(sheetName);
+    if (!sh) return;
+    var lastCol = sh.getLastColumn();
+    var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    ['SubmitterName', 'SubmitterPhone', 'Source'].forEach(function (col) {
+      if (headers.indexOf(col) === -1) {
+        lastCol++;
+        sh.getRange(1, lastCol).setValue(col);
+        headers.push(col);
+        Logger.log('تمت إضافة عمود ' + col + ' إلى شيت ' + sheetName);
+      }
+    });
+  });
+
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('PWD_SALT')) props.setProperty('PWD_SALT', Utilities.getUuid());
 
@@ -1808,4 +1855,206 @@ function handleNeeds_delete(payload, user) {
   if (!deleteById_('Needs', payload.id)) throw new Error('الاحتياج غير موجود.');
   audit_(user, 'delete', 'Needs', payload.id);
   return { done: true };
+}
+
+
+/* ============================================================================
+ * [18] النموذج العام (Public Intake) — استقبال البلاغات والاحتياجات بلا مصادقة
+ * ----------------------------------------------------------------------------
+ * نقطة دخول عامة تخدم صفحة submit.html. تُبقى مساحة الهجوم ضيقة عبر:
+ *  - حد إجمالي للطلبات في النافذة الزمنية (rate limit).
+ *  - فخّ للروبوتات (honeypot) يُسقط الطلب بصمت.
+ *  - تحقّق صارم من المسجد والقيم وحدود أطوال النصوص.
+ *  - منع رفع أولوية "حرجة" من الجمهور (تُحجز للموظفين).
+ *  كل طلب عام يُسجَّل بحالة "جديد" ومصدر "عام" ليفرزه الموظفون داخل النظام.
+ * ========================================================================== */
+
+/** بيانات تهيئة النموذج العام: اسم الجمعية + قائمة المساجد + القيم المرجعية. */
+function handlePublic_config() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('public:config');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+
+  var mosques = readRows_('Mosques').map(function (m) {
+    return { id: m.ID, name: m.Name, district: m.District, city: m.City };
+  }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'ar'); });
+
+  var orgSetting = getSetting_('orgName');
+  var result = {
+    org: (orgSetting && orgSetting.Value) ? orgSetting.Value : 'جمعية العناية بالمساجد',
+    mosques: mosques,
+    reportTypes: ENUMS.reportTypes,
+    reportPriority: ['منخفضة', 'متوسطة', 'عالية'],  // "حرجة" محجوزة للموظفين
+    needsCategories: ENUMS.needsCategories,
+    submitterRoles: ['إمام', 'مؤذن', 'مصلٍّ', 'عابر سبيل', 'أخرى']
+  };
+  try { cache.put('public:config', JSON.stringify(result), 300); } catch (e) {}
+  return result;
+}
+
+/** استقبال طلب عام (بلاغ أو احتياج). payload: { kind, mosqueId, ... , _hp }. */
+function handlePublic_submit(payload) {
+  payload = payload || {};
+
+  // فخّ الروبوتات: الحقل المخفي يجب أن يبقى فارغاً لدى البشر
+  if (payload._hp) return { done: true, ref: '' };
+
+  // حدّ إجمالي للطلبات (نافذة 60 ثانية) لتفادي الإغراق
+  var cache = CacheService.getScriptCache();
+  var rlCount = parseInt(cache.get('public:rl') || '0', 10);
+  if (rlCount >= 40) throw new Error('النظام يستقبل عدداً كبيراً من الطلبات حالياً. يرجى المحاولة بعد دقيقة.');
+  try { cache.put('public:rl', String(rlCount + 1), 60); } catch (e) {}
+
+  var kind = String(payload.kind || '');
+  if (kind !== 'report' && kind !== 'need') throw new Error('نوع الطلب غير صالح.');
+
+  var mosque = findById_('Mosques', String(payload.mosqueId || ''));
+  if (!mosque) throw new Error('يرجى اختيار مسجد صحيح من القائمة.');
+
+  var name = clip_(payload.submitterName, 80);
+  var phone = sanitizePhone_(payload.submitterPhone);
+  if (phone && !/^\+?\d{7,15}$/.test(phone)) throw new Error('رقم الجوال غير صحيح.');
+  var srole = clip_(payload.submitterRole, 30);
+  var who = name ? (srole ? (srole + ': ' + name) : name) : (srole || 'زائر');
+  var createdBy = 'نموذج عام — ' + who;
+
+  if (kind === 'report') {
+    var desc = clip_(payload.description, 1000);
+    if (!desc) throw new Error('يرجى كتابة وصف البلاغ.');
+    var rtype = ENUMS.reportTypes.indexOf(payload.type) > -1 ? payload.type : 'أخرى';
+    var pri = ['منخفضة', 'متوسطة', 'عالية'].indexOf(payload.priority) > -1 ? payload.priority : 'متوسطة';
+    var rpt = {
+      ID: genId_('RPT'), MosqueID: mosque.ID, Type: rtype, Priority: pri,
+      Description: desc, Status: 'جديد', Images: '',
+      CreatedBy: createdBy, CreatedAt: nowIso_(), UpdatedAt: nowIso_(), ResolvedAt: '',
+      SubmitterName: name, SubmitterPhone: phone, Source: 'عام'
+    };
+    insertRow_('Reports', rpt);
+    notifyRole_(['admin', 'supervisor'], 'بلاغ جديد عبر النموذج العام',
+      (mosque.Name || '') + ' — ' + desc, 'report', rpt.ID);
+    return { done: true, ref: rpt.ID };
+  }
+
+  // احتياج
+  var item = clip_(payload.item, 120);
+  if (!item) throw new Error('يرجى تحديد الاحتياج المطلوب.');
+  var cat = ENUMS.needsCategories.indexOf(payload.category) > -1 ? payload.category : 'أخرى';
+  var need = {
+    ID: genId_('NED'), MosqueID: mosque.ID, Category: cat, Item: item,
+    Needed: toNum_(payload.needed), Available: 0, Unit: clip_(payload.unit, 20) || 'وحدة',
+    Status: 'لم يُسدّ', Notes: clip_(payload.notes, 500),
+    CreatedBy: createdBy, CreatedAt: nowIso_(), UpdatedAt: nowIso_(),
+    SubmitterName: name, SubmitterPhone: phone, Source: 'عام'
+  };
+  insertRow_('Needs', need);
+  notifyRole_(['admin', 'supervisor'], 'احتياج جديد عبر النموذج العام',
+    (mosque.Name || '') + ' — ' + item, 'need', need.ID);
+  return { done: true, ref: need.ID };
+}
+
+
+/* ============================================================================
+ * [19] الرسائل النصية (SMS) — إعدادات قابلة للإدخال + إرسال متعدّد المزوّدين
+ * ----------------------------------------------------------------------------
+ * يُحفظ المفتاح في ScriptProperties (لا يظهر في أي شيت ولا يُعاد للواجهة).
+ * يدعم مزوّدين شائعين في السعودية (تقنيات، مسجات، يونيفونك) إضافةً إلى تويليو
+ * وخيار مخصّص (Custom) لأي مزوّد آخر عبر رابط واحد.
+ * ========================================================================== */
+
+/** قراءة إعدادات SMS من الخصائص الآمنة. */
+function smsConfig_() {
+  var p = PropertiesService.getScriptProperties();
+  return {
+    provider: p.getProperty('SMS_PROVIDER') || '',
+    apiKey:   p.getProperty('SMS_API_KEY') || '',
+    sender:   p.getProperty('SMS_SENDER') || '',
+    username: p.getProperty('SMS_USERNAME') || '',
+    baseUrl:  p.getProperty('SMS_BASEURL') || ''
+  };
+}
+
+/** إرجاع الإعدادات للواجهة دون كشف المفتاح (مقنّع فقط). */
+function handleSms_getConfig(payload, user) {
+  var c = smsConfig_();
+  return {
+    provider: c.provider, sender: c.sender, username: c.username, baseUrl: c.baseUrl,
+    hasKey: !!c.apiKey,
+    keyMask: c.apiKey ? (c.apiKey.slice(0, 3) + '••••••' + c.apiKey.slice(-2)) : '',
+    providers: [
+      { value: 'taqnyat',  label: 'تقنيات (Taqnyat)' },
+      { value: 'msegat',   label: 'مسجات (Msegat)' },
+      { value: 'unifonic', label: 'يونيفونك (Unifonic)' },
+      { value: 'twilio',   label: 'Twilio' },
+      { value: 'custom',   label: 'مخصّص (رابط JSON)' }
+    ]
+  };
+}
+
+/** حفظ إعدادات SMS. لا يُمسّ المفتاح إلا إذا أُرسل صراحةً. */
+function handleSms_saveConfig(payload, user) {
+  var p = PropertiesService.getScriptProperties();
+  if (payload.provider !== undefined) p.setProperty('SMS_PROVIDER', clip_(payload.provider, 20));
+  if (payload.sender   !== undefined) p.setProperty('SMS_SENDER', clip_(payload.sender, 40));
+  if (payload.username !== undefined) p.setProperty('SMS_USERNAME', clip_(payload.username, 80));
+  if (payload.baseUrl  !== undefined) p.setProperty('SMS_BASEURL', clip_(payload.baseUrl, 300));
+  if (payload.apiKey) p.setProperty('SMS_API_KEY', String(payload.apiKey).trim());
+  if (payload.clearKey) p.deleteProperty('SMS_API_KEY');
+  audit_(user, 'update', 'Settings', 'SMS');
+  return handleSms_getConfig(payload, user);
+}
+
+/** إرسال رسالة تجريبية للتحقق من صحة المفتاح والإعدادات. */
+function handleSms_test(payload, user) {
+  requireFields_(payload, ['phone']);
+  var msg = clip_(payload.message, 300) || 'رسالة تجريبية من نظام العناية بالمساجد. تم ضبط الإعدادات بنجاح.';
+  return sendSms_(payload.phone, msg);
+}
+
+/** الإرسال الفعلي عبر المزوّد المضبوط. يعيد { sent, info }. */
+function sendSms_(phone, message) {
+  var c = smsConfig_();
+  if (!c.provider) throw new Error('لم يتم اختيار مزوّد الرسائل بعد.');
+  var to = normalizeKsaPhone_(phone);
+  if (!to) throw new Error('رقم الجوال غير صالح.');
+  if (c.provider !== 'custom' && !c.apiKey) throw new Error('لم يتم إدخال مفتاح API بعد.');
+
+  var resp, code, txt;
+  if (c.provider === 'taqnyat') {
+    resp = UrlFetchApp.fetch('https://api.taqnyat.sa/v1/messages', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { Authorization: 'Bearer ' + c.apiKey },
+      payload: JSON.stringify({ recipients: [to], body: message, sender: c.sender })
+    });
+  } else if (c.provider === 'msegat') {
+    resp = UrlFetchApp.fetch('https://www.msegat.com/gw/sendsms.php', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ userName: c.username, apiKey: c.apiKey, numbers: to, userSender: c.sender, msg: message })
+    });
+  } else if (c.provider === 'unifonic') {
+    resp = UrlFetchApp.fetch('https://el.cloud.unifonic.com/rest/SMS/messages', {
+      method: 'post', muteHttpExceptions: true,
+      payload: { AppSid: c.apiKey, SenderID: c.sender, Recipient: to, Body: message }
+    });
+  } else if (c.provider === 'twilio') {
+    // username = Account SID ، apiKey = Auth Token ، sender = الرقم المُرسِل
+    var auth = Utilities.base64Encode(c.username + ':' + c.apiKey);
+    resp = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(c.username) + '/Messages.json', {
+      method: 'post', muteHttpExceptions: true,
+      headers: { Authorization: 'Basic ' + auth },
+      payload: { To: '+' + to, From: c.sender, Body: message }
+    });
+  } else if (c.provider === 'custom') {
+    if (!c.baseUrl) throw new Error('أدخل رابط المزوّد المخصّص.');
+    resp = UrlFetchApp.fetch(c.baseUrl, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ to: to, message: message, apiKey: c.apiKey, sender: c.sender })
+    });
+  } else {
+    throw new Error('مزوّد غير مدعوم.');
+  }
+
+  code = resp.getResponseCode();
+  txt = resp.getContentText();
+  if (code >= 200 && code < 300) return { sent: true, info: txt.slice(0, 300) };
+  throw new Error('فشل الإرسال (رمز ' + code + '): ' + txt.slice(0, 200));
 }

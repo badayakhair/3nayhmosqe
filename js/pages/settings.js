@@ -56,6 +56,127 @@
     const permWrap = UI.el('div', { class: 'mt-16' });
     page.appendChild(permWrap);
     renderPermissions(permWrap);
+
+    // قسم رابط النموذج العام
+    const linkWrap = UI.el('div', { class: 'mt-16' });
+    page.appendChild(linkWrap);
+    renderPublicLink(linkWrap);
+
+    // قسم إعدادات الرسائل النصية
+    const smsWrap = UI.el('div', { class: 'mt-16' });
+    page.appendChild(smsWrap);
+    renderSmsConfig(smsWrap);
+  }
+
+  /* ---------------- رابط النموذج العام ---------------- */
+
+  function renderPublicLink(wrap) {
+    const url = location.origin + location.pathname.replace(/[^/]*$/, 'submit.html');
+    const card = UI.el('div', { class: 'card' });
+    card.appendChild(UI.el('div', { class: 'card-title', text: '🔗 رابط النموذج العام' }));
+    card.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:13px;margin-bottom:12px',
+      text: 'شارك هذا الرابط مع الأئمة والمؤذنين والمصلين لاستقبال البلاغات والاحتياجات. لا يتطلب تسجيل دخول، ويمكن وضعه في رمز QR داخل المسجد.' }));
+    const inp = UI.el('input', { class: 'input', type: 'text', value: url, readonly: 'true' });
+    card.appendChild(inp);
+    card.appendChild(UI.el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin-top:10px' }, [
+      UI.el('button', { class: 'btn btn-primary', text: '📋 نسخ الرابط', onclick: function () {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(url).then(function () { UI.toast('تم نسخ الرابط', 'success'); },
+            function () { inp.select(); document.execCommand('copy'); UI.toast('تم النسخ', 'success'); });
+        } else { inp.select(); document.execCommand('copy'); UI.toast('تم النسخ', 'success'); }
+      } }),
+      UI.el('a', { class: 'btn btn-ghost', href: url, target: '_blank', text: '↗️ فتح النموذج' })
+    ]));
+    wrap.appendChild(card);
+  }
+
+  /* ---------------- إعدادات الرسائل النصية (SMS) ---------------- */
+
+  async function renderSmsConfig(wrap) {
+    UI.showLoading(wrap);
+    let cfg;
+    try { cfg = await API.call('sms.getConfig', {}, { noCache: true }); }
+    catch (err) { UI.emptyState(wrap, err.message); return; }
+
+    wrap.innerHTML = '';
+    const card = UI.el('div', { class: 'card' });
+    card.appendChild(UI.el('div', { class: 'card-title', text: '✉️ إعدادات الرسائل النصية (SMS)' }));
+    card.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:13px;margin-bottom:14px',
+      text: 'أدخل بيانات مزوّد الرسائل لتفعيل الإرسال النصي. المفتاح يُحفظ بشكل آمن في الخادم ولا يظهر مجدداً بعد حفظه.' }));
+
+    function row(label, input, hint) {
+      const r = UI.el('div', { class: 'form-row' }, [UI.el('label', { class: 'form-label', text: label }), input]);
+      if (hint) r.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:11px;margin-top:2px', text: hint }));
+      return r;
+    }
+
+    const providerSel = UI.el('select', { class: 'select' });
+    (cfg.providers || []).forEach(function (p) {
+      const o = UI.el('option', { value: p.value, text: p.label });
+      if (p.value === cfg.provider) o.setAttribute('selected', 'true');
+      providerSel.appendChild(o);
+    });
+    const senderInp = UI.el('input', { class: 'input', type: 'text', value: cfg.sender || '', placeholder: 'اسم المُرسِل المعتمد' });
+    const usernameInp = UI.el('input', { class: 'input', type: 'text', value: cfg.username || '' });
+    const baseUrlInp = UI.el('input', { class: 'input', type: 'text', value: cfg.baseUrl || '', placeholder: 'https://...' });
+    const keyInp = UI.el('input', { class: 'input', type: 'password',
+      placeholder: cfg.hasKey ? ('المفتاح محفوظ (' + cfg.keyMask + ') — اتركه فارغاً للإبقاء عليه') : 'أدخل مفتاح API' });
+
+    const usernameRow = row('اسم المستخدم / Account SID', usernameInp, 'مطلوب لمسجات (اسم المستخدم) وتويليو (Account SID)');
+    const baseUrlRow = row('رابط المزوّد المخصّص', baseUrlInp, 'يُرسَل إليه POST بصيغة JSON: {to, message, apiKey, sender}');
+
+    function applyVisibility() {
+      const p = providerSel.value;
+      usernameRow.style.display = (p === 'msegat' || p === 'twilio') ? '' : 'none';
+      baseUrlRow.style.display = (p === 'custom') ? '' : 'none';
+    }
+    providerSel.addEventListener('change', applyVisibility);
+
+    const grid = UI.el('div', { class: 'form-grid' }, [
+      row('المزوّد', providerSel),
+      row('اسم المُرسِل (Sender)', senderInp),
+      usernameRow, baseUrlRow,
+      row('مفتاح API', keyInp)
+    ]);
+    card.appendChild(grid);
+    applyVisibility();
+
+    const bar = UI.el('div', { class: 'mt-16', style: 'display:flex;gap:10px;flex-wrap:wrap' });
+    const saveBtn = UI.el('button', { class: 'btn btn-primary', text: '💾 حفظ الإعدادات', onclick: async function () {
+      saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
+      try {
+        const payload = { provider: providerSel.value, sender: senderInp.value, username: usernameInp.value, baseUrl: baseUrlInp.value };
+        if (keyInp.value) payload.apiKey = keyInp.value;
+        await API.call('sms.saveConfig', payload);
+        UI.toast('تم حفظ إعدادات الرسائل', 'success');
+        renderSmsConfig(wrap);
+      } catch (err) { UI.toast(err.message, 'error'); saveBtn.disabled = false; saveBtn.textContent = '💾 حفظ الإعدادات'; }
+    } });
+    bar.appendChild(saveBtn);
+    if (cfg.hasKey) {
+      bar.appendChild(UI.el('button', { class: 'btn btn-ghost', text: '🗑️ مسح المفتاح', onclick: function () {
+        UI.confirm('مسح مفتاح API المحفوظ؟', async function () {
+          try { await API.call('sms.saveConfig', { clearKey: true }); UI.toast('تم مسح المفتاح', 'success'); renderSmsConfig(wrap); }
+          catch (err) { UI.toast(err.message, 'error'); }
+        });
+      } }));
+    }
+    card.appendChild(bar);
+
+    const testWrap = UI.el('div', { class: 'mt-16', style: 'border-top:1px solid var(--border);padding-top:14px' });
+    testWrap.appendChild(UI.el('div', { class: 'form-label', text: 'تجربة الإرسال' }));
+    const testPhone = UI.el('input', { class: 'input', type: 'tel', placeholder: '05xxxxxxxx', style: 'max-width:220px' });
+    const testBtn = UI.el('button', { class: 'btn btn-ghost', text: '📤 إرسال رسالة تجريبية', onclick: async function () {
+      if (!testPhone.value) { UI.toast('أدخل رقم الجوال أولاً', 'error'); return; }
+      testBtn.disabled = true; testBtn.textContent = 'جارٍ الإرسال…';
+      try { await API.call('sms.test', { phone: testPhone.value }); UI.toast('تم إرسال الرسالة التجريبية بنجاح ✓', 'success'); }
+      catch (err) { UI.toast(err.message, 'error'); }
+      testBtn.disabled = false; testBtn.textContent = '📤 إرسال رسالة تجريبية';
+    } });
+    testWrap.appendChild(UI.el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:center' }, [testPhone, testBtn]));
+    card.appendChild(testWrap);
+
+    wrap.appendChild(card);
   }
 
   /* ---------------- مصفوفة الصلاحيات ---------------- */
