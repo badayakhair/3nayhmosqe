@@ -102,7 +102,7 @@
     const card = UI.el('div', { class: 'card' });
     card.appendChild(UI.el('div', { class: 'card-title', text: '✉️ إعدادات الرسائل النصية (SMS)' }));
     card.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:13px;margin-bottom:14px',
-      text: 'أدخل رابط API الخاص بمزوّد الرسائل ومفتاحه. يُرسَل الطلب بصيغة POST/JSON مع ترويسة Authorization: Bearer. المفتاح يُحفظ بأمان في الخادم.' }));
+      text: 'يستخدم النظام خدمة OurSMS للإرسال. أدخل رقم حسابك ومفتاح API من لوحة تحكم OurSMS. المفتاح يُحفظ بأمان في الخادم.' }));
 
     function row(label, input, hint) {
       const r = UI.el('div', { class: 'form-row' }, [UI.el('label', { class: 'form-label', text: label }), input]);
@@ -110,13 +110,13 @@
       return r;
     }
 
-    const apiUrlInp = UI.el('input', { class: 'input', type: 'text', value: cfg.apiUrl || '', placeholder: 'https://api.example.com/send' });
+    const userIdInp = UI.el('input', { class: 'input', type: 'text', value: cfg.userId || '', placeholder: 'رقم حسابك في OurSMS' });
     const senderInp = UI.el('input', { class: 'input', type: 'text', value: cfg.sender || '', placeholder: 'اسم المُرسِل المعتمد' });
     const keyInp = UI.el('input', { class: 'input', type: 'password',
       placeholder: cfg.hasKey ? ('المفتاح محفوظ (' + cfg.keyMask + ') — اتركه فارغاً للإبقاء عليه') : 'أدخل مفتاح API' });
 
     const grid = UI.el('div', { class: 'form-grid' }, [
-      row('رابط API', apiUrlInp, 'يُرسَل إليه POST بصيغة JSON: {to, message, sender, apiKey}'),
+      row('رقم الحساب (User ID)', userIdInp, 'يظهر في إعدادات حسابك على oursms.com'),
       row('اسم المُرسِل (Sender)', senderInp),
       row('مفتاح API', keyInp)
     ]);
@@ -126,7 +126,7 @@
     const saveBtn = UI.el('button', { class: 'btn btn-primary', text: '💾 حفظ الإعدادات', onclick: async function () {
       saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
       try {
-        const payload = { apiUrl: apiUrlInp.value, sender: senderInp.value };
+        const payload = { userId: userIdInp.value, sender: senderInp.value };
         if (keyInp.value) payload.apiKey = keyInp.value;
         await API.call('sms.saveConfig', payload);
         UI.toast('تم حفظ إعدادات الرسائل', 'success');

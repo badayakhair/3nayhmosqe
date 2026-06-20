@@ -1957,15 +1957,16 @@ function handlePublic_submit(payload) {
  * [19] الرسائل النصية (SMS) — إعدادات قابلة للإدخال + إرسال متعدّد المزوّدين
  * ----------------------------------------------------------------------------
  * يُحفظ المفتاح في ScriptProperties (لا يظهر في أي شيت ولا يُعاد للواجهة).
- * يدعم مزوّدين شائعين في السعودية (تقنيات، مسجات، يونيفونك) إضافةً إلى تويليو
- * وخيار مخصّص (Custom) لأي مزوّد آخر عبر رابط واحد.
+ * يستخدم خدمة OurSMS (oursms.app) عبر مفتاح API ورقم المستخدم.
  * ========================================================================== */
+
+var OURSMS_ENDPOINT = 'https://oursms.app/api/v1/sms/Add/SendOneSms';
 
 /** قراءة إعدادات SMS من الخصائص الآمنة. */
 function smsConfig_() {
   var p = PropertiesService.getScriptProperties();
   return {
-    apiUrl: p.getProperty('SMS_API_URL') || '',
+    userId: p.getProperty('SMS_USER_ID') || '',
     apiKey: p.getProperty('SMS_API_KEY') || '',
     sender: p.getProperty('SMS_SENDER') || ''
   };
@@ -1975,7 +1976,7 @@ function smsConfig_() {
 function handleSms_getConfig(payload, user) {
   var c = smsConfig_();
   return {
-    apiUrl: c.apiUrl,
+    userId: c.userId,
     sender: c.sender,
     hasKey: !!c.apiKey,
     keyMask: c.apiKey ? (c.apiKey.slice(0, 3) + '••••••' + c.apiKey.slice(-2)) : ''
@@ -1985,7 +1986,7 @@ function handleSms_getConfig(payload, user) {
 /** حفظ إعدادات SMS. لا يُمسّ المفتاح إلا إذا أُرسل صراحةً. */
 function handleSms_saveConfig(payload, user) {
   var p = PropertiesService.getScriptProperties();
-  if (payload.apiUrl !== undefined) p.setProperty('SMS_API_URL', clip_(payload.apiUrl, 300));
+  if (payload.userId !== undefined) p.setProperty('SMS_USER_ID', clip_(payload.userId, 40));
   if (payload.sender !== undefined) p.setProperty('SMS_SENDER', clip_(payload.sender, 40));
   if (payload.apiKey) p.setProperty('SMS_API_KEY', String(payload.apiKey).trim());
   if (payload.clearKey) p.deleteProperty('SMS_API_KEY');
@@ -2001,21 +2002,20 @@ function handleSms_test(payload, user) {
 }
 
 /**
- * الإرسال الفعلي: POST إلى رابط API المضبوط بصيغة JSON.
- * الجسم: { to, message, sender, apiKey }
- * المفتاح يُرسَل أيضاً في ترويسة Authorization: Bearer <key>
+ * الإرسال عبر OurSMS.
+ * POST https://oursms.app/api/v1/sms/Add/SendOneSms
+ * الجسم: { userId, key, phoneNumber, Message }
  */
 function sendSms_(phone, message) {
   var c = smsConfig_();
-  if (!c.apiUrl) throw new Error('لم يتم إدخال رابط API بعد.');
   if (!c.apiKey) throw new Error('لم يتم إدخال مفتاح API بعد.');
+  if (!c.userId) throw new Error('لم يتم إدخال رقم الحساب (userId) بعد.');
   var to = normalizeKsaPhone_(phone);
   if (!to) throw new Error('رقم الجوال غير صالح.');
 
-  var resp = UrlFetchApp.fetch(c.apiUrl, {
+  var resp = UrlFetchApp.fetch(OURSMS_ENDPOINT, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + c.apiKey },
-    payload: JSON.stringify({ to: to, message: message, sender: c.sender, apiKey: c.apiKey })
+    payload: JSON.stringify({ userId: parseInt(c.userId, 10), key: c.apiKey, phoneNumber: to, Message: message })
   });
   var code = resp.getResponseCode();
   var txt = resp.getContentText();
