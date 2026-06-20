@@ -1965,11 +1965,9 @@ function handlePublic_submit(payload) {
 function smsConfig_() {
   var p = PropertiesService.getScriptProperties();
   return {
-    provider: p.getProperty('SMS_PROVIDER') || '',
-    apiKey:   p.getProperty('SMS_API_KEY') || '',
-    sender:   p.getProperty('SMS_SENDER') || '',
-    username: p.getProperty('SMS_USERNAME') || '',
-    baseUrl:  p.getProperty('SMS_BASEURL') || ''
+    apiUrl: p.getProperty('SMS_API_URL') || '',
+    apiKey: p.getProperty('SMS_API_KEY') || '',
+    sender: p.getProperty('SMS_SENDER') || ''
   };
 }
 
@@ -1977,84 +1975,50 @@ function smsConfig_() {
 function handleSms_getConfig(payload, user) {
   var c = smsConfig_();
   return {
-    provider: c.provider, sender: c.sender, username: c.username, baseUrl: c.baseUrl,
+    apiUrl: c.apiUrl,
+    sender: c.sender,
     hasKey: !!c.apiKey,
-    keyMask: c.apiKey ? (c.apiKey.slice(0, 3) + '••••••' + c.apiKey.slice(-2)) : '',
-    providers: [
-      { value: 'taqnyat',  label: 'تقنيات (Taqnyat)' },
-      { value: 'msegat',   label: 'مسجات (Msegat)' },
-      { value: 'unifonic', label: 'يونيفونك (Unifonic)' },
-      { value: 'twilio',   label: 'Twilio' },
-      { value: 'custom',   label: 'مخصّص (رابط JSON)' }
-    ]
+    keyMask: c.apiKey ? (c.apiKey.slice(0, 3) + '••••••' + c.apiKey.slice(-2)) : ''
   };
 }
 
 /** حفظ إعدادات SMS. لا يُمسّ المفتاح إلا إذا أُرسل صراحةً. */
 function handleSms_saveConfig(payload, user) {
   var p = PropertiesService.getScriptProperties();
-  if (payload.provider !== undefined) p.setProperty('SMS_PROVIDER', clip_(payload.provider, 20));
-  if (payload.sender   !== undefined) p.setProperty('SMS_SENDER', clip_(payload.sender, 40));
-  if (payload.username !== undefined) p.setProperty('SMS_USERNAME', clip_(payload.username, 80));
-  if (payload.baseUrl  !== undefined) p.setProperty('SMS_BASEURL', clip_(payload.baseUrl, 300));
+  if (payload.apiUrl !== undefined) p.setProperty('SMS_API_URL', clip_(payload.apiUrl, 300));
+  if (payload.sender !== undefined) p.setProperty('SMS_SENDER', clip_(payload.sender, 40));
   if (payload.apiKey) p.setProperty('SMS_API_KEY', String(payload.apiKey).trim());
   if (payload.clearKey) p.deleteProperty('SMS_API_KEY');
   audit_(user, 'update', 'Settings', 'SMS');
   return handleSms_getConfig(payload, user);
 }
 
-/** إرسال رسالة تجريبية للتحقق من صحة المفتاح والإعدادات. */
+/** إرسال رسالة تجريبية للتحقق من صحة الإعدادات. */
 function handleSms_test(payload, user) {
   requireFields_(payload, ['phone']);
   var msg = clip_(payload.message, 300) || 'رسالة تجريبية من نظام العناية بالمساجد. تم ضبط الإعدادات بنجاح.';
   return sendSms_(payload.phone, msg);
 }
 
-/** الإرسال الفعلي عبر المزوّد المضبوط. يعيد { sent, info }. */
+/**
+ * الإرسال الفعلي: POST إلى رابط API المضبوط بصيغة JSON.
+ * الجسم: { to, message, sender, apiKey }
+ * المفتاح يُرسَل أيضاً في ترويسة Authorization: Bearer <key>
+ */
 function sendSms_(phone, message) {
   var c = smsConfig_();
-  if (!c.provider) throw new Error('لم يتم اختيار مزوّد الرسائل بعد.');
+  if (!c.apiUrl) throw new Error('لم يتم إدخال رابط API بعد.');
+  if (!c.apiKey) throw new Error('لم يتم إدخال مفتاح API بعد.');
   var to = normalizeKsaPhone_(phone);
   if (!to) throw new Error('رقم الجوال غير صالح.');
-  if (c.provider !== 'custom' && !c.apiKey) throw new Error('لم يتم إدخال مفتاح API بعد.');
 
-  var resp, code, txt;
-  if (c.provider === 'taqnyat') {
-    resp = UrlFetchApp.fetch('https://api.taqnyat.sa/v1/messages', {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + c.apiKey },
-      payload: JSON.stringify({ recipients: [to], body: message, sender: c.sender })
-    });
-  } else if (c.provider === 'msegat') {
-    resp = UrlFetchApp.fetch('https://www.msegat.com/gw/sendsms.php', {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ userName: c.username, apiKey: c.apiKey, numbers: to, userSender: c.sender, msg: message })
-    });
-  } else if (c.provider === 'unifonic') {
-    resp = UrlFetchApp.fetch('https://el.cloud.unifonic.com/rest/SMS/messages', {
-      method: 'post', muteHttpExceptions: true,
-      payload: { AppSid: c.apiKey, SenderID: c.sender, Recipient: to, Body: message }
-    });
-  } else if (c.provider === 'twilio') {
-    // username = Account SID ، apiKey = Auth Token ، sender = الرقم المُرسِل
-    var auth = Utilities.base64Encode(c.username + ':' + c.apiKey);
-    resp = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(c.username) + '/Messages.json', {
-      method: 'post', muteHttpExceptions: true,
-      headers: { Authorization: 'Basic ' + auth },
-      payload: { To: '+' + to, From: c.sender, Body: message }
-    });
-  } else if (c.provider === 'custom') {
-    if (!c.baseUrl) throw new Error('أدخل رابط المزوّد المخصّص.');
-    resp = UrlFetchApp.fetch(c.baseUrl, {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ to: to, message: message, apiKey: c.apiKey, sender: c.sender })
-    });
-  } else {
-    throw new Error('مزوّد غير مدعوم.');
-  }
-
-  code = resp.getResponseCode();
-  txt = resp.getContentText();
+  var resp = UrlFetchApp.fetch(c.apiUrl, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + c.apiKey },
+    payload: JSON.stringify({ to: to, message: message, sender: c.sender, apiKey: c.apiKey })
+  });
+  var code = resp.getResponseCode();
+  var txt = resp.getContentText();
   if (code >= 200 && code < 300) return { sent: true, info: txt.slice(0, 300) };
   throw new Error('فشل الإرسال (رمز ' + code + '): ' + txt.slice(0, 200));
 }

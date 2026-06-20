@@ -102,7 +102,7 @@
     const card = UI.el('div', { class: 'card' });
     card.appendChild(UI.el('div', { class: 'card-title', text: '✉️ إعدادات الرسائل النصية (SMS)' }));
     card.appendChild(UI.el('div', { class: 'text-muted', style: 'font-size:13px;margin-bottom:14px',
-      text: 'أدخل بيانات مزوّد الرسائل لتفعيل الإرسال النصي. المفتاح يُحفظ بشكل آمن في الخادم ولا يظهر مجدداً بعد حفظه.' }));
+      text: 'أدخل رابط API الخاص بمزوّد الرسائل ومفتاحه. يُرسَل الطلب بصيغة POST/JSON مع ترويسة Authorization: Bearer. المفتاح يُحفظ بأمان في الخادم.' }));
 
     function row(label, input, hint) {
       const r = UI.el('div', { class: 'form-row' }, [UI.el('label', { class: 'form-label', text: label }), input]);
@@ -110,42 +110,23 @@
       return r;
     }
 
-    const providerSel = UI.el('select', { class: 'select' });
-    (cfg.providers || []).forEach(function (p) {
-      const o = UI.el('option', { value: p.value, text: p.label });
-      if (p.value === cfg.provider) o.setAttribute('selected', 'true');
-      providerSel.appendChild(o);
-    });
+    const apiUrlInp = UI.el('input', { class: 'input', type: 'text', value: cfg.apiUrl || '', placeholder: 'https://api.example.com/send' });
     const senderInp = UI.el('input', { class: 'input', type: 'text', value: cfg.sender || '', placeholder: 'اسم المُرسِل المعتمد' });
-    const usernameInp = UI.el('input', { class: 'input', type: 'text', value: cfg.username || '' });
-    const baseUrlInp = UI.el('input', { class: 'input', type: 'text', value: cfg.baseUrl || '', placeholder: 'https://...' });
     const keyInp = UI.el('input', { class: 'input', type: 'password',
       placeholder: cfg.hasKey ? ('المفتاح محفوظ (' + cfg.keyMask + ') — اتركه فارغاً للإبقاء عليه') : 'أدخل مفتاح API' });
 
-    const usernameRow = row('اسم المستخدم / Account SID', usernameInp, 'مطلوب لمسجات (اسم المستخدم) وتويليو (Account SID)');
-    const baseUrlRow = row('رابط المزوّد المخصّص', baseUrlInp, 'يُرسَل إليه POST بصيغة JSON: {to, message, apiKey, sender}');
-
-    function applyVisibility() {
-      const p = providerSel.value;
-      usernameRow.style.display = (p === 'msegat' || p === 'twilio') ? '' : 'none';
-      baseUrlRow.style.display = (p === 'custom') ? '' : 'none';
-    }
-    providerSel.addEventListener('change', applyVisibility);
-
     const grid = UI.el('div', { class: 'form-grid' }, [
-      row('المزوّد', providerSel),
+      row('رابط API', apiUrlInp, 'يُرسَل إليه POST بصيغة JSON: {to, message, sender, apiKey}'),
       row('اسم المُرسِل (Sender)', senderInp),
-      usernameRow, baseUrlRow,
       row('مفتاح API', keyInp)
     ]);
     card.appendChild(grid);
-    applyVisibility();
 
     const bar = UI.el('div', { class: 'mt-16', style: 'display:flex;gap:10px;flex-wrap:wrap' });
     const saveBtn = UI.el('button', { class: 'btn btn-primary', text: '💾 حفظ الإعدادات', onclick: async function () {
       saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
       try {
-        const payload = { provider: providerSel.value, sender: senderInp.value, username: usernameInp.value, baseUrl: baseUrlInp.value };
+        const payload = { apiUrl: apiUrlInp.value, sender: senderInp.value };
         if (keyInp.value) payload.apiKey = keyInp.value;
         await API.call('sms.saveConfig', payload);
         UI.toast('تم حفظ إعدادات الرسائل', 'success');
