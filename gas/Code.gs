@@ -1957,16 +1957,15 @@ function handlePublic_submit(payload) {
  * [19] الرسائل النصية (SMS) — إعدادات قابلة للإدخال + إرسال متعدّد المزوّدين
  * ----------------------------------------------------------------------------
  * يُحفظ المفتاح في ScriptProperties (لا يظهر في أي شيت ولا يُعاد للواجهة).
- * يستخدم خدمة OurSMS (oursms.app) عبر مفتاح API ورقم المستخدم.
+ * يستخدم خدمة OurSMS (api.oursms.com) عبر مفتاح API (توكن) واسم المُرسِل فقط.
  * ========================================================================== */
 
-var OURSMS_ENDPOINT = 'https://oursms.app/api/v1/sms/Add/SendOneSms';
+var OURSMS_ENDPOINT = 'https://api.oursms.com/api-a/msgs';
 
 /** قراءة إعدادات SMS من الخصائص الآمنة. */
 function smsConfig_() {
   var p = PropertiesService.getScriptProperties();
   return {
-    userId: p.getProperty('SMS_USER_ID') || '',
     apiKey: p.getProperty('SMS_API_KEY') || '',
     sender: p.getProperty('SMS_SENDER') || ''
   };
@@ -1976,7 +1975,6 @@ function smsConfig_() {
 function handleSms_getConfig(payload, user) {
   var c = smsConfig_();
   return {
-    userId: c.userId,
     sender: c.sender,
     hasKey: !!c.apiKey,
     keyMask: c.apiKey ? (c.apiKey.slice(0, 3) + '••••••' + c.apiKey.slice(-2)) : ''
@@ -1986,7 +1984,6 @@ function handleSms_getConfig(payload, user) {
 /** حفظ إعدادات SMS. لا يُمسّ المفتاح إلا إذا أُرسل صراحةً. */
 function handleSms_saveConfig(payload, user) {
   var p = PropertiesService.getScriptProperties();
-  if (payload.userId !== undefined) p.setProperty('SMS_USER_ID', clip_(payload.userId, 40));
   if (payload.sender !== undefined) p.setProperty('SMS_SENDER', clip_(payload.sender, 40));
   if (payload.apiKey) p.setProperty('SMS_API_KEY', String(payload.apiKey).trim());
   if (payload.clearKey) p.deleteProperty('SMS_API_KEY');
@@ -2003,19 +2000,23 @@ function handleSms_test(payload, user) {
 
 /**
  * الإرسال عبر OurSMS.
- * POST https://oursms.app/api/v1/sms/Add/SendOneSms
- * الجسم: { userId, key, phoneNumber, Message }
+ * POST https://api.oursms.com/api-a/msgs
+ * الحقول: token (المفتاح) + src (اسم المُرسِل) + dests (الجوال) + body (النص)
+ * يُرسَل المفتاح أيضاً في ترويسة Authorization: Bearer لزيادة التوافق.
  */
 function sendSms_(phone, message) {
   var c = smsConfig_();
   if (!c.apiKey) throw new Error('لم يتم إدخال مفتاح API بعد.');
-  if (!c.userId) throw new Error('لم يتم إدخال رقم الحساب (userId) بعد.');
   var to = normalizeKsaPhone_(phone);
   if (!to) throw new Error('رقم الجوال غير صالح.');
 
   var resp = UrlFetchApp.fetch(OURSMS_ENDPOINT, {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    payload: JSON.stringify({ userId: parseInt(c.userId, 10), key: c.apiKey, phoneNumber: to, Message: message })
+    method: 'post', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + c.apiKey },
+    payload: {
+      token: c.apiKey, src: c.sender, dests: to, body: message,
+      priority: '0', delay: '0', validity: '0', maxParts: '0', dlr: '0', prevDups: '0'
+    }
   });
   var code = resp.getResponseCode();
   var txt = resp.getContentText();
