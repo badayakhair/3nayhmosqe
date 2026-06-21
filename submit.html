@@ -9,14 +9,17 @@
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/components.css">
   <style>
+    html, body { margin: 0; padding: 0; overflow-x: hidden; width: 100%; }
     .pub-page {
       min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
       background: linear-gradient(135deg, var(--primary-dark), var(--primary));
       padding: 24px 16px; direction: rtl;
+      width: 100%; box-sizing: border-box;
     }
     .pub-card {
       background: var(--surface); border-radius: 18px; box-shadow: var(--shadow-lg);
-      width: 100%; max-width: 560px; padding: 28px 26px; margin: auto;
+      width: 100%; max-width: 560px; padding: 28px 26px; margin: 0 auto;
+      box-sizing: border-box;
     }
     .pub-logo { text-align: center; margin-bottom: 6px; }
     .pub-logo .icon { font-size: 46px; }
