@@ -39,6 +39,21 @@ window.UI = (function () {
     });
   }
 
+  /**
+   * يعيد رابطاً آمناً للعرض: يقبل فقط http(s) والروابط النسبية. يمنع
+   * javascript: و data: ونحوها (حماية من XSS عبر روابط مخزّنة).
+   * يعيد '' إذا كان الرابط غير آمن.
+   */
+  function safeUrl(u) {
+    if (u == null) return '';
+    var s = String(u).trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) return s;        // مطلق آمن
+    if (/^(\/|\.\/|\.\.\/)/.test(s)) return s;     // نسبي
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return ''; // أي مخطط آخر (javascript:, data:…) مرفوض
+    return s;                                       // بلا مخطط (نسبي ضمنياً)
+  }
+
   /* ---- التنبيهات (Toast) ---- */
   function toast(message, type) {
     let cont = $('#toast-container');
@@ -172,7 +187,7 @@ window.UI = (function () {
   }
 
   return {
-    $: $, $all: $all, el: el, escapeHtml: escapeHtml,
+    $: $, $all: $all, el: el, escapeHtml: escapeHtml, safeUrl: safeUrl,
     toast: toast, modal: modal, confirm: confirm,
     fmtDate: fmtDate, fmtDateTime: fmtDateTime, fmtNum: fmtNum, todayInput: todayInput,
     statusBadge: statusBadge, priorityBadge: priorityBadge,

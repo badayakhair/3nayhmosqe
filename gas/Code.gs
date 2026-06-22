@@ -327,10 +327,21 @@ function bytesToHex_(bytes) {
  * السكربت (خارج جدول البيانات) + آلاف التكرارات لإبطاء الهجمات بالقوة العمياء.
  * الصيغة المخزّنة: v2$<iterations>$<salt>$<hashHex>
  */
+/**
+ * الفلفل السرّي (pepper): يُقرأ من خصائص السكربت (خارج جدول البيانات والمستودع العام).
+ * إن لم يكن موجوداً يُولَّد عشوائياً ويُحفظ — لا يوجد أي قيمة ثابتة في الكود إطلاقاً.
+ */
+function getPepper_() {
+  var props = PropertiesService.getScriptProperties();
+  var p = props.getProperty('PWD_SALT');
+  if (!p) { p = Utilities.getUuid() + Utilities.getUuid(); props.setProperty('PWD_SALT', p); }
+  return p;
+}
+
 function hashPasswordV2_(password, salt, iterations) {
   salt = salt || Utilities.getUuid().replace(/-/g, '');
   iterations = iterations || 4096;
-  var pepper = PropertiesService.getScriptProperties().getProperty('PWD_SALT') || 'masajid-care-salt';
+  var pepper = getPepper_();
   var bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256, salt + '::' + pepper + '::' + password, Utilities.Charset.UTF_8);
   for (var i = 1; i < iterations; i++) {
@@ -341,7 +352,7 @@ function hashPasswordV2_(password, salt, iterations) {
 
 /** التجزئة القديمة (v1) — للتحقق من الحسابات المنشأة قبل الترقية فقط. */
 function hashPasswordLegacy_(password) {
-  var salt = PropertiesService.getScriptProperties().getProperty('PWD_SALT') || 'masajid-care-salt';
+  var salt = getPepper_();
   return bytesToHex_(Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256, salt + '::' + password, Utilities.Charset.UTF_8));
 }
@@ -408,6 +419,17 @@ function isTrue_(v) {
 function clip_(v, max) {
   var s = (v == null ? '' : String(v)).trim();
   return s.length > max ? s.slice(0, max) : s;
+}
+
+/**
+ * إبطال حقن صيغ الجداول (CSV/Sheets Injection): أي نص يبدأ بـ = + - @ أو
+ * محرف جدولة يُسبَق بفاصلة عُليا ('), فلا يُنفَّذ كصيغة عند فتح الجدول أو ملف CSV.
+ * يُطبَّق على النصوص الحرّة القادمة من مصادر غير موثوقة (النموذج العام).
+ */
+function deformula_(v, max) {
+  var s = clip_(v, max);
+  if (s && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return s;
 }
 
 /** تنظيف رقم جوال: إبقاء الأرقام و+ فقط. يعيد '' إن كان فارغاً. */
@@ -688,6 +710,7 @@ function doGet(e) {
 /** المحرّك الرئيسي للتوجيه. */
 function dispatch_(e) {
   var lock = LockService.getScriptLock();
+  var isPublicRoute = false;
   try {
     var body = parseRequest_(e);
     var action = body.action;
@@ -701,6 +724,7 @@ function dispatch_(e) {
       return jsonOutput_({ ok: false, error: { code: 'UNKNOWN_ACTION', message: 'عملية غير معروفة: ' + action } });
     }
 
+    isPublicRoute = !route.auth;
     var user = null;
     if (route.auth) {
       var session = validateToken_(body.token);
@@ -726,7 +750,10 @@ function dispatch_(e) {
     return jsonOutput_({ ok: true, data: data });
 
   } catch (err) {
-    return jsonOutput_({ ok: false, error: { code: 'SERVER_ERROR', message: String(err && err.message || err) } });
+    // للمسارات العامة (غير المصادَق عليها): رسالة عامة فقط حتى لا تتسرّب تفاصيل داخلية.
+    try { Logger.log('dispatch_ error: ' + (err && err.stack || err)); } catch (ignore2) {}
+    var msg = isPublicRoute ? 'تعذّر تنفيذ الطلب. حاول لاحقاً.' : String(err && err.message || err);
+    return jsonOutput_({ ok: false, error: { code: 'SERVER_ERROR', message: msg } });
   } finally {
     try { lock.releaseLock(); } catch (ignore) {}
   }
@@ -752,19 +779,23 @@ function jsonOutput_(obj) {
  * [5] المصادقة والجلسات (Auth)
  * ========================================================================== */
 
-var LOGIN_MAX_ATTEMPTS = 6;   // محاولات فاشلة قبل الحظر المؤقت
-var LOGIN_LOCK_SECONDS = 300; // مدة الحظر (5 دقائق)
+var LOGIN_MAX_ATTEMPTS = 6;    // محاولات فاشلة لكل بريد قبل الحظر المؤقت
+var LOGIN_MAX_GLOBAL = 60;     // سقف إجمالي للمحاولات الفاشلة (ضد رشّ كلمات المرور)
+var LOGIN_LOCK_SECONDS = 300;  // مدة الحظر (5 دقائق)
 
 /** تسجيل الدخول. payload: { email, password } -> { token, user, permissions } */
 function handleAuth_login(payload) {
   requireFields_(payload, ['email', 'password']);
   var email = String(payload.email).trim().toLowerCase();
 
-  // خنق محاولات التخمين: حظر مؤقت بعد عدة محاولات فاشلة لنفس البريد
+  // خنق محاولات التخمين: حظر مؤقت لكل بريد + حظر إجمالي يحمي من رشّ كلمة
+  // مرور واحدة على حسابات كثيرة (password spraying).
   var cache = CacheService.getScriptCache();
   var akey = 'login_fail:' + email;
+  var gkey = 'login_fail_global';
   var attempts = parseInt(cache.get(akey) || '0', 10);
-  if (attempts >= LOGIN_MAX_ATTEMPTS) {
+  var gAttempts = parseInt(cache.get(gkey) || '0', 10);
+  if (attempts >= LOGIN_MAX_ATTEMPTS || gAttempts >= LOGIN_MAX_GLOBAL) {
     throw new Error('تم تجاوز عدد المحاولات المسموح. حاول مجدداً بعد بضع دقائق.');
   }
 
@@ -776,7 +807,10 @@ function handleAuth_login(payload) {
 
   var ok = user && isTrue_(user.Active) && verifyPassword_(user.PasswordHash, payload.password);
   if (!ok) {
-    try { cache.put(akey, String(attempts + 1), LOGIN_LOCK_SECONDS); } catch (e) {}
+    try {
+      cache.put(akey, String(attempts + 1), LOGIN_LOCK_SECONDS);
+      cache.put(gkey, String(gAttempts + 1), LOGIN_LOCK_SECONDS);
+    } catch (e) {}
     if (user && !isTrue_(user.Active)) throw new Error('هذا الحساب موقوف. راجع مدير النظام.');
     throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
   }
@@ -824,7 +858,7 @@ function handleAuth_changePassword(payload, user) {
 }
 
 function createSession_(userId) {
-  var token = Utilities.getUuid() + '-' + Date.now();
+  var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
   var expires = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
   insertRow_('Sessions', { Token: token, UserID: userId, ExpiresAt: expires, CreatedAt: nowIso_() });
   // تنظيف الجلسات المنتهية ليس على المسار الساخن لكل دخول (عملية بطيئة): نشغّله
@@ -1911,15 +1945,15 @@ function handlePublic_submit(payload) {
   var mosque = findById_('Mosques', String(payload.mosqueId || ''));
   if (!mosque) throw new Error('يرجى اختيار مسجد صحيح من القائمة.');
 
-  var name = clip_(payload.submitterName, 80);
+  var name = deformula_(payload.submitterName, 80);
   var phone = sanitizePhone_(payload.submitterPhone);
   if (phone && !/^\+?\d{7,15}$/.test(phone)) throw new Error('رقم الجوال غير صحيح.');
-  var srole = clip_(payload.submitterRole, 30);
+  var srole = deformula_(payload.submitterRole, 30);
   var who = name ? (srole ? (srole + ': ' + name) : name) : (srole || 'زائر');
   var createdBy = 'نموذج عام — ' + who;
 
   if (kind === 'report') {
-    var desc = clip_(payload.description, 1000);
+    var desc = deformula_(payload.description, 1000);
     if (!desc) throw new Error('يرجى كتابة وصف البلاغ.');
     var rtype = ENUMS.reportTypes.indexOf(payload.type) > -1 ? payload.type : 'أخرى';
     var pri = ['منخفضة', 'متوسطة', 'عالية'].indexOf(payload.priority) > -1 ? payload.priority : 'متوسطة';
@@ -1936,13 +1970,13 @@ function handlePublic_submit(payload) {
   }
 
   // احتياج
-  var item = clip_(payload.item, 120);
+  var item = deformula_(payload.item, 120);
   if (!item) throw new Error('يرجى تحديد الاحتياج المطلوب.');
   var cat = ENUMS.needsCategories.indexOf(payload.category) > -1 ? payload.category : 'أخرى';
   var need = {
     ID: genId_('NED'), MosqueID: mosque.ID, Category: cat, Item: item,
-    Needed: toNum_(payload.needed), Available: 0, Unit: clip_(payload.unit, 20) || 'وحدة',
-    Status: 'لم يُسدّ', Notes: clip_(payload.notes, 500),
+    Needed: toNum_(payload.needed), Available: 0, Unit: deformula_(payload.unit, 20) || 'وحدة',
+    Status: 'لم يُسدّ', Notes: deformula_(payload.notes, 500),
     CreatedBy: createdBy, CreatedAt: nowIso_(), UpdatedAt: nowIso_(),
     SubmitterName: name, SubmitterPhone: phone, Source: 'عام'
   };

@@ -436,7 +436,9 @@
   }
 
   function csvCell(v) {
-    const s = String(v == null ? '' : v);
+    let s = String(v == null ? '' : v);
+    // إبطال حقن الصيغ: سبق أي قيمة تبدأ بـ = + - @ أو جدولة بفاصلة عُليا
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 

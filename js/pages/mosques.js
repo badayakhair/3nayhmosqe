@@ -348,7 +348,7 @@
     if (row.Images) {
       const grid = UI.el('div', { class: 'image-grid' });
       String(row.Images).split(',').forEach(function (u) {
-        u = u.trim(); if (u) grid.appendChild(UI.el('img', { src: u, alt: 'صورة' }));
+        u = UI.safeUrl(u.trim()); if (u) grid.appendChild(UI.el('img', { src: u, alt: 'صورة' }));
       });
       body.appendChild(grid);
     }
