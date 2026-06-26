@@ -24,7 +24,7 @@ window.APP_CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbyYpDFsUYborwsoE-Y7Yr_GX_GGlH1aGyvTaYAaYXMH6iz3SWYaFycdes5SnbAaUQm5/exec',
 
   // التجريبي — الصق هنا رابط /dev من Apps Script (اتركه فارغاً إن لم تستخدمه)
-  API_URL_DEV: '',
+  API_URL_DEV: 'https://script.google.com/macros/s/AKfycbwG_f6V9NeqemCfOsRnHXpDcxnKphaSfCNc0RM4NPU/dev',
 
   APP_NAME: 'نظام العناية بالمساجد',
   ORG_NAME: 'جمعية العناية بالمساجد',
