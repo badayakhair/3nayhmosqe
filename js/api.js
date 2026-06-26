@@ -26,7 +26,8 @@ window.API = (function () {
 
   /** تنفيذ طلب الشبكة الفعلي إلى الخادم. */
   async function fetchFromServer(action, payload) {
-    if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.indexOf('REPLACE_WITH') > -1) {
+    const apiUrl = APP_CONFIG.activeApiUrl ? APP_CONFIG.activeApiUrl() : APP_CONFIG.API_URL;
+    if (!apiUrl || apiUrl.indexOf('REPLACE_WITH') > -1) {
       throw new Error('لم يتم ضبط رابط الـ API بعد. حرّر js/config.js وأضف رابط النشر.');
     }
 
@@ -34,7 +35,7 @@ window.API = (function () {
 
     let res;
     try {
-      res = await fetch(APP_CONFIG.API_URL, {
+      res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: body,

@@ -51,12 +51,13 @@ window.Auth = (function () {
     const token = localStorage.getItem(APP_CONFIG.STORAGE.TOKEN);
     try {
       const body = JSON.stringify({ action: 'auth.logout', token: token, payload: { token: token } });
-      if (token && APP_CONFIG.API_URL && navigator.sendBeacon) {
+      const apiUrl = APP_CONFIG.activeApiUrl ? APP_CONFIG.activeApiUrl() : APP_CONFIG.API_URL;
+      if (token && apiUrl && navigator.sendBeacon) {
         // sendBeacon يرسل نوع المحتوى text/plain فلا يستدعي preflight
-        navigator.sendBeacon(APP_CONFIG.API_URL, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
-      } else if (token && APP_CONFIG.API_URL) {
+        navigator.sendBeacon(apiUrl, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
+      } else if (token && apiUrl) {
         // بديل: fetch مع keepalive دون انتظار
-        fetch(APP_CONFIG.API_URL, {
+        fetch(apiUrl, {
           method: 'POST', keepalive: true,
           headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: body
         }).catch(function () {});
